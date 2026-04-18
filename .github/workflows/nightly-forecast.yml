@@ -1,0 +1,28 @@
+name: 東海村 週間波予測（毎晩22時）
+
+on:
+  schedule:
+    # 毎晩22:00 JST = 13:00 UTC
+    - cron: '0 13 * * *'
+  workflow_dispatch:   # 手動実行ボタン
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: ライブラリインストール
+        run: pip install -r requirements.txt
+
+      - name: 週間波予測を実行してLINEに送信
+        env:
+          ANTHROPIC_API_KEY:          ${{ secrets.ANTHROPIC_API_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN:  ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID:               ${{ secrets.LINE_USER_ID }}
+        run: python forecast.py
