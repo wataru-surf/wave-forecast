@@ -12,6 +12,36 @@ ANTHROPIC_KEY = os.environ["ANTHROPIC_API_KEY"]
 LINE_TOKEN    = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 LINE_USER_ID  = os.environ["LINE_USER_ID"]
 
+# ── Instagram実績データ読み込み ─────────────────────────
+def load_surf_history() -> list[dict]:
+    path = os.path.join(os.path.dirname(__file__), "surf_history.json")
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+# ── 実績データから直近N日のサマリーを生成 ──
+def build_history_context(history: list[dict], days: int = 14) -> str:
+    if not history:
+        return ""
+    cutoff = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+    recent = [h for h in history if h.get("date", "") >= cutoff]
+    if not recent:
+        return ""
+    lines = ["【過去の実測データ（stokeandsea Instagram）】"]
+    for h in sorted(recent, key=lambda x: x["date"], reverse=True):
+        d    = h.get("date", "?")
+        size = h.get("wave_size", "?")
+        wdir = h.get("wind_dir", "?")
+        wspd = h.get("wind_speed_ms", "?")
+        rate = h.get("rating", "?")
+        note = h.get("conditions_note", "")
+        lines.append(f"  {d}: {size} / {wdir}{wspd}m/s / ★{rate} {note}")
+    return "\n".join(lines)
+
 # ── 気象・波データ取得 (Open-Meteo / 無料・認証不要) ──
 def fetch_forecast():
     url = (
@@ -72,14 +102,20 @@ def weather_emoji(code: int) -> str:
     return "🌤"
 
 # ── Claude API で予測文生成 ──
-def generate_forecast_text(days_data: list[dict]) -> str:
+def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
     system = (
         "あなたは茨城県東海村のサーフコーチです。"
         "東海村クソ下ポイントの1週間波予測を、地元サーファーのわたるさん向けに"
         "わかりやすく、具体的にまとめてください。"
         "特に朝イチ（5〜8時台）のサーフィン適性に注目してください。"
+        "過去の実測データが提供される場合は、それを参考にして予測の精度を高めてください。"
+        "数値モデルと実測値の傾向の差異（例：モデルより実際は波が大きい/小さい等）に注目してください。"
     )
+    history_context = build_history_context(history, days=14)
     user = "以下のデータから東海村クソ下の7日間波予測をまとめてください：\n\n"
+    if history_context:
+        user += history_context + "\n\n"
+    user += "【気象モデル予測データ（Open-Meteo）】\n"
     for d in days_data:
         user += (
             f"【{d['date']}（{d['dow']}）】\n"
@@ -150,7 +186,9 @@ def main():
             "tide":       tide_phase(date_obj),
         })
 
-    forecast_text = generate_forecast_text(days_data)
+    history = load_surf_history()
+    print(f"実績データ読み込み: {len(history)}件")
+    forecast_text = generate_forecast_text(days_data, history)
 
     now_str = datetime.datetime.now(JST).strftime("%Y/%m/%d %H:%M")
     message = f"🏄 東海村クソ下 週間波予測\n（{now_str} 更新）\n\n{forecast_text}"

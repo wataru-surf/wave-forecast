@@ -6,11 +6,16 @@ on:
     - cron: '0 13 * * *'
   workflow_dispatch:   # 手動実行ボタン
 
+permissions:
+  contents: write   # surf_history.json をコミット・プッシュするために必要
+
 jobs:
   forecast:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Python セットアップ
         uses: actions/setup-python@v5
@@ -20,6 +25,24 @@ jobs:
       - name: ライブラリインストール
         run: pip install -r requirements.txt
 
+      # ── STEP 1: Instagramから実績データを収集 ──
+      - name: Instagram実績データ収集
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python collect_instagram.py
+        continue-on-error: true   # 失敗してもLINE送信は続ける
+
+      # ── STEP 2: surf_history.json をリポジトリにコミット ──
+      - name: 実績データをコミット
+        run: |
+          git config user.name  "wave-forecast-bot"
+          git config user.email "bot@wave-forecast.local"
+          git add surf_history.json
+          git diff --staged --quiet || git commit -m "📊 Update surf history $(date +'%Y-%m-%d')"
+          git push
+        continue-on-error: true
+
+      # ── STEP 3: 週間予測を生成してLINEに送信 ──
       - name: 週間波予測を実行してLINEに送信
         env:
           ANTHROPIC_API_KEY:          ${{ secrets.ANTHROPIC_API_KEY }}
