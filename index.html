@@ -1,0 +1,1541 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="波情報AI">
+  <meta name="theme-color" content="#0a2463">
+  <title>🏄 波情報AIジェネレーター</title>
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏄</text></svg>">
+  <style>
+    :root {
+      --ocean-deep: #0a2463;
+      --ocean-mid: #1e5288;
+      --ocean-light: #3e92cc;
+      --foam: #e8f4f8;
+      --sand: #f5e6d3;
+      --sunset-orange: #ff6b35;
+      --sunset-pink: #ff8a80;
+      --success: #10b981;
+      --white: #ffffff;
+      --text-dark: #1a1a2e;
+      --text-muted: #6b7280;
+      --safe-top: env(safe-area-inset-top);
+      --safe-bottom: env(safe-area-inset-bottom);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+      background: var(--foam);
+      min-height: 100vh;
+      min-height: -webkit-fill-available;
+      overscroll-behavior: none;
+    }
+
+    /* ナビゲーションタブ */
+    .nav-tabs {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      background: var(--ocean-deep);
+      padding-top: var(--safe-top);
+      z-index: 100;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    }
+
+    .nav-tab {
+      flex: 1;
+      padding: 16px 8px;
+      border: none;
+      background: transparent;
+      color: rgba(255,255,255,0.6);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .nav-tab.active {
+      color: var(--white);
+      background: rgba(255,255,255,0.1);
+    }
+
+    .nav-tab-icon {
+      font-size: 1.3rem;
+    }
+
+    /* メインコンテンツ */
+    .main-content {
+      padding: calc(80px + var(--safe-top)) 16px calc(20px + var(--safe-bottom));
+    }
+
+    .page {
+      display: none;
+    }
+
+    .page.active {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* セクション */
+    .section {
+      background: var(--white);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    .section-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--ocean-mid);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* 大きなセレクトボタン */
+    .select-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .select-grid.three-col {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .select-grid.four-col {
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    .select-grid.five-col {
+      grid-template-columns: repeat(5, 1fr);
+    }
+
+    .select-btn {
+      padding: 16px 12px;
+      border: 2px solid var(--foam);
+      border-radius: 14px;
+      background: var(--white);
+      font-size: 1rem;
+      font-weight: 500;
+      color: var(--text-dark);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-align: center;
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .select-btn:active {
+      transform: scale(0.96);
+    }
+
+    .select-btn.selected {
+      border-color: var(--ocean-deep);
+      background: var(--ocean-deep);
+      color: var(--white);
+    }
+
+    .select-btn.small {
+      padding: 12px 8px;
+      font-size: 0.9rem;
+      min-height: 48px;
+    }
+
+    .select-btn.xsmall {
+      padding: 10px 6px;
+      font-size: 0.8rem;
+      min-height: 44px;
+    }
+
+    /* 絵文字ボタン */
+    .emoji-btn {
+      font-size: 1.8rem;
+      padding: 14px;
+    }
+
+    .emoji-btn.selected {
+      background: linear-gradient(135deg, var(--sunset-orange), var(--sunset-pink));
+      border-color: var(--sunset-orange);
+    }
+
+    /* 数値入力 */
+    .number-input-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .number-btn {
+      width: 56px;
+      height: 56px;
+      border: 2px solid var(--foam);
+      border-radius: 14px;
+      background: var(--white);
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--ocean-deep);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .number-btn:active {
+      background: var(--foam);
+      transform: scale(0.95);
+    }
+
+    .number-display {
+      flex: 1;
+      text-align: center;
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--text-dark);
+    }
+
+    .number-unit {
+      font-size: 1rem;
+      color: var(--text-muted);
+      margin-left: 4px;
+    }
+
+    /* コメント選択 */
+    .comment-btn {
+      padding: 16px;
+      border: 2px solid var(--foam);
+      border-radius: 14px;
+      background: var(--white);
+      font-size: 0.95rem;
+      color: var(--text-dark);
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: left;
+      width: 100%;
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+
+    .comment-btn:active {
+      transform: scale(0.98);
+    }
+
+    .comment-btn.selected {
+      border-color: var(--ocean-deep);
+      background: var(--ocean-deep);
+      color: var(--white);
+    }
+
+    /* 出力エリア */
+    .output-box {
+      background: var(--text-dark);
+      border-radius: 14px;
+      padding: 20px;
+      color: var(--white);
+      font-size: 0.95rem;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      min-height: 280px;
+      word-break: break-all;
+    }
+
+    /* 大きなアクションボタン */
+    .action-btn {
+      width: 100%;
+      padding: 20px;
+      border: none;
+      border-radius: 16px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .action-btn:active {
+      transform: scale(0.97);
+    }
+
+    .action-btn.primary {
+      background: linear-gradient(135deg, var(--sunset-orange), var(--sunset-pink));
+      color: var(--white);
+      box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
+    }
+
+    .action-btn.secondary {
+      background: linear-gradient(135deg, var(--ocean-deep), var(--ocean-mid));
+      color: var(--white);
+    }
+
+    .action-btn.success {
+      background: linear-gradient(135deg, var(--success), #059669);
+      color: var(--white);
+    }
+
+    /* 履歴カード */
+    .history-card {
+      background: var(--white);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    .history-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .history-date {
+      font-weight: 700;
+      color: var(--ocean-deep);
+      font-size: 1rem;
+    }
+
+    .history-badge {
+      background: var(--ocean-deep);
+      color: var(--white);
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+
+    .history-details {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      font-size: 0.85rem;
+    }
+
+    .history-item {
+      text-align: center;
+      padding: 8px;
+      background: var(--foam);
+      border-radius: 8px;
+    }
+
+    .history-label {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin-bottom: 4px;
+    }
+
+    .history-value {
+      color: var(--text-dark);
+      font-weight: 600;
+    }
+
+    .history-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .history-btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .history-btn.copy {
+      background: var(--ocean-light);
+      color: var(--white);
+    }
+
+    .history-btn.delete {
+      background: var(--foam);
+      color: #ef4444;
+    }
+
+    /* トースト通知 */
+    .toast {
+      position: fixed;
+      bottom: calc(100px + var(--safe-bottom));
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--text-dark);
+      color: var(--white);
+      padding: 16px 32px;
+      border-radius: 30px;
+      font-weight: 600;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      z-index: 200;
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    .toast.success {
+      background: var(--success);
+    }
+
+    /* 空の履歴 */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted);
+    }
+
+    .empty-icon {
+      font-size: 4rem;
+      margin-bottom: 16px;
+    }
+
+    .empty-text {
+      font-size: 1rem;
+    }
+
+    /* データプレビュー */
+    .data-preview {
+      background: var(--foam);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 16px;
+    }
+
+    .data-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+      font-size: 0.9rem;
+    }
+
+    .data-row:last-child {
+      border-bottom: none;
+    }
+
+    .data-label {
+      color: var(--text-muted);
+    }
+
+    .data-value {
+      color: var(--text-dark);
+      font-weight: 600;
+    }
+
+    /* 評価グループ */
+    .rating-group {
+      margin-bottom: 12px;
+    }
+
+    .rating-group-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    /* 自動取得ボタン */
+    .fetch-btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #0891b2, #0e7490);
+      color: var(--white);
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      box-shadow: 0 3px 10px rgba(8, 145, 178, 0.3);
+    }
+    .fetch-btn:active { transform: scale(0.97); }
+    .fetch-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* AI生成ボタン */
+    .ai-btn {
+      width: 100%;
+      padding: 18px;
+      border: none;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #7c3aed, #ec4899);
+      color: var(--white);
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3);
+    }
+
+    .ai-btn:active { transform: scale(0.97); }
+    .ai-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .ai-btn.loading::after {
+      content: '';
+      width: 18px;
+      height: 18px;
+      border: 2.5px solid rgba(255,255,255,0.3);
+      border-top-color: var(--white);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* 設定フォーム */
+    .settings-label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-dark);
+      margin-bottom: 8px;
+    }
+
+    .settings-input {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid var(--foam);
+      border-radius: 12px;
+      background: var(--white);
+      font-size: 1rem;
+      color: var(--text-dark);
+      margin-bottom: 14px;
+      font-family: monospace;
+    }
+
+    .settings-input:focus {
+      outline: none;
+      border-color: var(--ocean-deep);
+    }
+
+    .settings-help {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
+    .settings-help a {
+      color: var(--ocean-light);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .settings-status {
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+
+    .settings-status.ok {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .settings-status.ng {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .model-radio-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .model-radio {
+      flex: 1;
+      padding: 14px;
+      border: 2px solid var(--foam);
+      border-radius: 12px;
+      background: var(--white);
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-dark);
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .model-radio.selected {
+      border-color: var(--ocean-deep);
+      background: var(--ocean-deep);
+      color: var(--white);
+    }
+  </style>
+</head>
+<body>
+  <!-- ナビゲーション -->
+  <nav class="nav-tabs">
+    <button class="nav-tab active" onclick="showPage('input')">
+      <span class="nav-tab-icon">✏️</span>
+      <span>入力</span>
+    </button>
+    <button class="nav-tab" onclick="showPage('output')">
+      <span class="nav-tab-icon">📱</span>
+      <span>投稿文</span>
+    </button>
+    <button class="nav-tab" onclick="showPage('history')">
+      <span class="nav-tab-icon">📋</span>
+      <span>履歴</span>
+    </button>
+    <button class="nav-tab" onclick="showPage('settings')">
+      <span class="nav-tab-icon">⚙️</span>
+      <span>設定</span>
+    </button>
+  </nav>
+
+  <main class="main-content">
+    <!-- 入力ページ -->
+    <div class="page active" id="page-input">
+      
+      <!-- 時間 -->
+      <div class="section">
+        <div class="section-title">⏰ 時間</div>
+        <div class="select-grid four-col" id="hourGrid"></div>
+        <div style="margin-top:12px">
+          <div class="select-grid four-col" id="minuteGrid"></div>
+        </div>
+      </div>
+
+      <!-- ポイント -->
+      <div class="section">
+        <div class="section-title">📍 ポイント</div>
+        <div class="select-grid" id="pointGrid"></div>
+      </div>
+
+      <!-- 風向き -->
+      <div class="section">
+        <div class="section-title">🌬 風向き・風速</div>
+        <button class="fetch-btn" id="windFetchBtn" onclick="fetchCurrentWind()">
+          🌬 現在の風を自動取得（東海村）
+        </button>
+        <div class="select-grid four-col" id="windDirGrid"></div>
+      </div>
+
+      <!-- 風速 -->
+      <div class="section">
+        <div class="section-title">💨 風速</div>
+        <div class="number-input-group">
+          <button class="number-btn" onclick="adjustWindSpeed(-0.5)">−</button>
+          <div class="number-display">
+            <span id="windSpeedDisplay">3.0</span>
+            <span class="number-unit">m/s</span>
+          </div>
+          <button class="number-btn" onclick="adjustWindSpeed(0.5)">＋</button>
+        </div>
+      </div>
+
+      <!-- サイズ -->
+      <div class="section">
+        <div class="section-title">🌊 サイズ</div>
+        <div class="select-grid three-col" id="sizeGrid"></div>
+      </div>
+
+      <!-- 天気 -->
+      <div class="section">
+        <div class="section-title">🌤 天気</div>
+        <div class="select-grid four-col" id="weatherGrid"></div>
+      </div>
+
+      <!-- 潮汐 -->
+      <div class="section">
+        <div class="section-title">🌙 潮汐</div>
+        <div class="select-grid five-col" id="tideGrid"></div>
+      </div>
+
+      <!-- 評価 -->
+      <div class="section">
+        <div class="section-title">⭐ 評価（5点刻み）</div>
+        
+        <div class="rating-group">
+          <div class="rating-group-label">× 不可能（0〜5）</div>
+          <div class="select-grid four-col" id="ratingGrid1"></div>
+        </div>
+        
+        <div class="rating-group">
+          <div class="rating-group-label">▽ 不満足（10〜35）</div>
+          <div class="select-grid four-col" id="ratingGrid2"></div>
+        </div>
+        
+        <div class="rating-group">
+          <div class="rating-group-label">△ 満足（40〜65）</div>
+          <div class="select-grid four-col" id="ratingGrid3"></div>
+        </div>
+        
+        <div class="rating-group">
+          <div class="rating-group-label">○ 大満足（70〜85）</div>
+          <div class="select-grid four-col" id="ratingGrid4"></div>
+        </div>
+        
+        <div class="rating-group">
+          <div class="rating-group-label">◎ エクセレント（90〜100）</div>
+          <div class="select-grid three-col" id="ratingGrid5"></div>
+        </div>
+      </div>
+
+      <!-- コメント -->
+      <div class="section">
+        <div class="section-title">💬 コメント</div>
+        <button class="ai-btn" id="aiGenBtn" onclick="generateAIComment()">
+          🤖 AIで今朝のコメントを生成
+        </button>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:12px; text-align:center;">
+          ↓ またはプリセットから選択
+        </div>
+        <div id="commentGrid"></div>
+      </div>
+
+      <!-- 投稿文を見るボタン -->
+      <button class="action-btn primary" onclick="showPage('output')">
+        📱 投稿文を確認する
+      </button>
+
+    </div>
+
+    <!-- 出力ページ -->
+    <div class="page" id="page-output">
+      
+      <div class="section">
+        <div class="section-title">📱 Instagram投稿文</div>
+        <div class="output-box" id="outputText"></div>
+        
+        <div style="margin-top:16px">
+          <button class="action-btn primary" onclick="copyPost()">
+            📋 投稿文をコピー
+          </button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">📊 スプレッドシート用</div>
+        <div class="data-preview">
+          <div class="data-row">
+            <span class="data-label">日付</span>
+            <span class="data-value" id="previewDate">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">時間</span>
+            <span class="data-value" id="previewTime">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">風向・風速</span>
+            <span class="data-value" id="previewWind">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">サイズ</span>
+            <span class="data-value" id="previewSize">-</span>
+          </div>
+          <div class="data-row">
+            <span class="data-label">評価</span>
+            <span class="data-value" id="previewRating">-</span>
+          </div>
+        </div>
+        
+        <div style="margin-top:16px">
+          <button class="action-btn secondary" onclick="copySheetData()">
+            📋 データをコピー
+          </button>
+          <button class="action-btn success" onclick="saveToHistory()">
+            💾 履歴に保存
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 履歴ページ -->
+    <div class="page" id="page-history">
+      <div id="historyList"></div>
+    </div>
+
+    <!-- 設定ページ -->
+    <div class="page" id="page-settings">
+      <div class="section">
+        <div class="section-title">🤖 Claude AI設定</div>
+        <div class="settings-help">
+          AIコメント生成機能を使うには、Claude APIキーが必要です。<br>
+          <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a> で無料取得できます。
+        </div>
+        <div id="keyStatus"></div>
+        <div id="testResult"></div>
+        <label class="settings-label">🔑 APIキー</label>
+        <input type="text" id="apiKeyInput" class="settings-input" placeholder="sk-ant-api03-..." autocomplete="off" style="font-size:0.8rem;">
+        <div class="settings-help">
+          キーはこの端末のブラウザにのみ保存されます。外部には送信されません。
+        </div>
+
+        <label class="settings-label">⚡ モデル（速度 vs 品質）</label>
+        <div class="model-radio-group">
+          <button class="model-radio selected" data-model="claude-haiku-4-5-20251001" onclick="selectModel('claude-haiku-4-5-20251001')">
+            Haiku<br><span style="font-size:0.7rem;font-weight:400;">速い・安い</span>
+          </button>
+          <button class="model-radio" data-model="claude-sonnet-4-5" onclick="selectModel('claude-sonnet-4-5')">
+            Sonnet<br><span style="font-size:0.7rem;font-weight:400;">自然な文章</span>
+          </button>
+        </div>
+
+        <button class="action-btn primary" onclick="saveSettings()">
+          💾 保存
+        </button>
+        <button class="action-btn secondary" onclick="testApiConnection()">
+          🧪 接続テスト
+        </button>
+        <button class="action-btn" style="background:var(--foam); color:#ef4444;" onclick="clearApiKey()">
+          🗑 キーを削除
+        </button>
+      </div>
+
+      <div class="section">
+        <div class="section-title">🔗 GitHub同期設定</div>
+        <div class="settings-help">
+          保存した波情報を自動でGitHubリポジトリに同期します。<br>
+          週間予測AIが過去の実測データを参照し、精度が上がります。
+        </div>
+        <div id="githubStatus"></div>
+        <label class="settings-label">🔑 GitHub PAT（repo権限）</label>
+        <input type="password" id="githubPatInput" class="settings-input" placeholder="ghp_..." autocomplete="off" style="font-size:0.8rem;">
+        <div class="settings-help">
+          Personal Access Token。<a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a> で取得（repo権限のみでOK）。
+        </div>
+        <button class="action-btn primary" onclick="saveGithubSettings()">
+          💾 保存
+        </button>
+        <button class="action-btn secondary" onclick="syncToGitHub(true)">
+          ☁️ 今すぐ同期
+        </button>
+        <button class="action-btn" style="background:var(--foam); color:#ef4444;" onclick="clearGithubPAT()">
+          🗑 PATを削除
+        </button>
+      </div>
+
+      <div class="section">
+        <div class="section-title">💰 料金の目安</div>
+        <div class="settings-help">
+          朝の投稿1回 ≈ <b>¥0.5</b><br>
+          月30日フル利用 ≈ <b>¥15〜50/月</b><br>
+          従量課金なので、使わなければ減りません。
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">ℹ️ アプリ情報</div>
+        <div class="settings-help">
+          🏄 波情報AIジェネレーター v1.0<br>
+          for わたるさん（東海村・クソ下）<br>
+          Instagram: @stokeandsea
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- トースト -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // 状態管理
+    let state = {
+      hour: '6',
+      minute: '00',
+      point: 'クソ下',
+      windDir: '北',
+      windSpeed: 3.0,
+      size: '腹',
+      weather: '🌤',
+      tide: '中潮',
+      rating: '▽30',
+      comment: 'やや面がざわつき、ミドル付近は厚めでダラダラなコンディション🏄‍♂️\nうまく波を選べば楽しめそうです。'
+    };
+
+    // 選択肢データ
+    const hours = ['5', '6', '7', '8', '9'];
+    const minutes = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+    const points = ['クソ下', '河原子', '大洗', '鉾田'];
+    const windDirs = ['北', '北北東', '北東', '東北東', '東', '東南東', '南東', '南南東', '南', '南南西', '南西', '西南西', '西', '西北西', '北西', '北北西'];
+    const sizes = ['フラット', 'スネ', 'ヒザ', 'モモ', '腰', '腹', '胸', '肩', '頭', '頭オーバー'];
+    const weathers = ['☀️', '🌤', '⛅', '☁️', '🌧', '⛈'];
+    const tides = ['大潮', '中潮', '小潮', '長潮', '若潮'];
+    
+    // 評価（5点刻み、正しい記号）
+    const ratings1 = ['×0', '×5'];  // × 不可能
+    const ratings2 = ['▽10', '▽15', '▽20', '▽25', '▽30', '▽35'];  // ▽ 不満足
+    const ratings3 = ['△40', '△45', '△50', '△55', '△60', '△65'];  // △ 満足
+    const ratings4 = ['○70', '○75', '○80', '○85'];  // ○ 大満足
+    const ratings5 = ['◎90', '◎95', '◎100'];  // ◎ エクセレント
+    
+    const comments = [
+      { label: '面ざわつき・ダラダラ', text: 'やや面がざわつき、ミドル付近は厚めでダラダラなコンディション🏄‍♂️\nうまく波を選べば楽しめそうです。' },
+      { label: 'クリーン・ファンウェーブ', text: '風弱くクリーンなコンディション🏄‍♂️\n小波ですがファンウェーブ楽しめそうです。' },
+      { label: 'オンショア・バタつき', text: 'オンショアで面がバタついてます🏄‍♂️\n浮力あるボードで対応したい。' },
+      { label: 'グラッシー・綺麗', text: 'グラッシーで綺麗な波🏄‍♂️\n良い波を選んで楽しめそうです。' },
+      { label: 'サイズアップ・パワフル', text: 'サイズアップしてパワフル🏄‍♂️\nしっかりしたセットが入ってます。' },
+      { label: 'スモール・タルめ', text: 'スモールでタルめのコンディション🏄‍♂️\nロングか浮力あるボード向け。' },
+      { label: 'ハードコンディション', text: '風が強くハードコンディション🏄‍♂️\n上級者向け、注意が必要です。' },
+      { label: '穏やか・初心者向け', text: '穏やかで初心者にも良さそう🏄‍♂️\nのんびりサーフィン日和です。' }
+    ];
+
+    // グリッド生成
+    function createSelectGrid(containerId, options, stateKey, isEmoji = false, btnClass = 'small') {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
+      options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = `select-btn${isEmoji ? ' emoji-btn' : ' ' + btnClass}${state[stateKey] === opt ? ' selected' : ''}`;
+        btn.textContent = opt;
+        btn.onclick = () => {
+          state[stateKey] = opt;
+          // 同じstateKeyのボタンすべてから選択解除
+          document.querySelectorAll(`[data-state-key="${stateKey}"] .select-btn`).forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          updateOutput();
+        };
+        container.appendChild(btn);
+      });
+      container.setAttribute('data-state-key', stateKey);
+    }
+
+    // 評価グリッド生成（複数のグリッドで1つのstateを共有）
+    function createRatingGrids() {
+      const allRatings = [
+        { id: 'ratingGrid1', options: ratings1 },
+        { id: 'ratingGrid2', options: ratings2 },
+        { id: 'ratingGrid3', options: ratings3 },
+        { id: 'ratingGrid4', options: ratings4 },
+        { id: 'ratingGrid5', options: ratings5 }
+      ];
+
+      allRatings.forEach(group => {
+        const container = document.getElementById(group.id);
+        container.innerHTML = '';
+        group.options.forEach(opt => {
+          const btn = document.createElement('button');
+          btn.className = `select-btn xsmall${state.rating === opt ? ' selected' : ''}`;
+          btn.textContent = opt;
+          btn.onclick = () => {
+            state.rating = opt;
+            // すべての評価グリッドから選択解除
+            document.querySelectorAll('#ratingGrid1 .select-btn, #ratingGrid2 .select-btn, #ratingGrid3 .select-btn, #ratingGrid4 .select-btn, #ratingGrid5 .select-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            updateOutput();
+          };
+          container.appendChild(btn);
+        });
+      });
+    }
+
+    // コメントグリッド生成
+    function createCommentGrid() {
+      const container = document.getElementById('commentGrid');
+      container.innerHTML = '';
+      comments.forEach((c, i) => {
+        const btn = document.createElement('button');
+        btn.className = `comment-btn${state.comment === c.text ? ' selected' : ''}`;
+        btn.textContent = c.label;
+        btn.onclick = () => {
+          state.comment = c.text;
+          document.querySelectorAll('#commentGrid .comment-btn').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+          updateOutput();
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    // 風速調整
+    function adjustWindSpeed(delta) {
+      state.windSpeed = Math.max(0, Math.min(30, state.windSpeed + delta));
+      state.windSpeed = Math.round(state.windSpeed * 10) / 10;
+      document.getElementById('windSpeedDisplay').textContent = state.windSpeed.toFixed(1);
+      updateOutput();
+    }
+
+    // 日付関連
+    function getDayOfWeek() {
+      return ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()];
+    }
+
+    function getFormattedDate() {
+      const now = new Date();
+      return `${now.getMonth() + 1}月${now.getDate()}日（${getDayOfWeek()}）`;
+    }
+
+    function getISODate() {
+      const now = new Date();
+      return `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+    }
+
+    // サイズタグ
+    function getSizeTag(size) {
+      const map = { 'フラット': 'フラット', 'スネ': 'スネサイズ', 'ヒザ': 'ヒザサイズ', 'モモ': 'モモサイズ', '腰': '腰サイズ', '腹': '腹サイズ', '胸': '胸サイズ', '肩': '肩サイズ', '頭': '頭サイズ', '頭オーバー': '頭オーバー' };
+      return map[size] || size;
+    }
+
+    // 出力更新
+    function updateOutput() {
+      const output = `${getFormattedDate()}${state.hour}時${state.minute}分
+${state.point}
+${state.windDir}風 ${state.windSpeed.toFixed(1)}m
+サイズ ${state.size}
+
+おはようございます${state.weather}
+今朝は${state.comment}
+
+良い1日を👍
+
+#波情報 #東海村 #クソ下 #茨城サーフィン #サーフィン
+サーフチェック 朝活サーフ surfing surflife surfcheck ${getSizeTag(state.size)} surfday`;
+
+      document.getElementById('outputText').textContent = output;
+      document.getElementById('previewDate').textContent = getISODate();
+      document.getElementById('previewTime').textContent = `${state.hour}:${state.minute}`;
+      document.getElementById('previewWind').textContent = `${state.windDir} ${state.windSpeed.toFixed(1)}m/s`;
+      document.getElementById('previewSize').textContent = state.size;
+      document.getElementById('previewRating').textContent = state.rating;
+    }
+
+    // ページ切り替え
+    function showPage(page) {
+      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+      document.getElementById(`page-${page}`).classList.add('active');
+      document.querySelector(`.nav-tab[onclick="showPage('${page}')"]`).classList.add('active');
+      
+      if (page === 'output') updateOutput();
+      if (page === 'history') renderHistory();
+    }
+
+    // コピー機能
+    function copyPost() {
+      navigator.clipboard.writeText(document.getElementById('outputText').textContent);
+      showToast('✓ コピーしました！');
+    }
+
+    function copySheetData() {
+      const data = `${getISODate()}\t${state.hour}:${state.minute}\t${state.tide}\t${state.size}\t${state.windDir}\t${state.windSpeed}\t${state.rating}\t${state.comment.replace(/\n/g,' ')}\t`;
+      navigator.clipboard.writeText(data);
+      showToast('✓ データをコピー！');
+    }
+
+    // 履歴機能
+    function getHistory() {
+      return JSON.parse(localStorage.getItem('surfHistory') || '[]');
+    }
+
+    function saveToHistory() {
+      const history = getHistory();
+      const entry = {
+        id: Date.now(),
+        date: getISODate(),
+        time: `${state.hour}:${state.minute}`,
+        dayOfWeek: getDayOfWeek(),
+        point: state.point,
+        windDir: state.windDir,
+        windSpeed: state.windSpeed,
+        size: state.size,
+        weather: state.weather,
+        tide: state.tide,
+        rating: state.rating,
+        comment: state.comment,
+        post: document.getElementById('outputText').textContent
+      };
+      history.unshift(entry);
+      localStorage.setItem('surfHistory', JSON.stringify(history.slice(0, 100)));
+      showToast('✓ 履歴に保存しました！', 'success');
+      showPage('history');
+      // GitHub同期（非同期・バックグラウンド）
+      syncToGitHub(false);
+    }
+
+    function deleteHistory(id) {
+      const history = getHistory().filter(h => h.id !== id);
+      localStorage.setItem('surfHistory', JSON.stringify(history));
+      renderHistory();
+      showToast('削除しました');
+    }
+
+    function copyHistoryPost(post) {
+      navigator.clipboard.writeText(post);
+      showToast('✓ コピーしました！');
+    }
+
+    function renderHistory() {
+      const history = getHistory();
+      const container = document.getElementById('historyList');
+      
+      if (history.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">📋</div>
+            <div class="empty-text">まだ履歴がありません<br>投稿を保存すると表示されます</div>
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = history.map(h => `
+        <div class="history-card">
+          <div class="history-header">
+            <span class="history-date">${h.date}（${h.dayOfWeek}）${h.time}</span>
+            <span class="history-badge">${h.rating}</span>
+          </div>
+          <div class="history-details">
+            <div class="history-item">
+              <div class="history-label">天気</div>
+              <div class="history-value">${h.weather}</div>
+            </div>
+            <div class="history-item">
+              <div class="history-label">サイズ</div>
+              <div class="history-value">${h.size}</div>
+            </div>
+            <div class="history-item">
+              <div class="history-label">風</div>
+              <div class="history-value">${h.windDir} ${h.windSpeed}m</div>
+            </div>
+          </div>
+          <div class="history-actions">
+            <button class="history-btn copy" onclick="copyHistoryPost(\`${h.post.replace(/`/g, '\\`').replace(/\n/g, '\\n')}\`)">📋 コピー</button>
+            <button class="history-btn delete" onclick="deleteHistory(${h.id})">🗑 削除</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // トースト表示
+    function showToast(message, type = '') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast${type ? ' ' + type : ''}`;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    // ===== Claude AI 連携 =====
+    const API_URL = 'https://api.anthropic.com/v1/messages';
+    const STORAGE_KEY = 'claudeApiKey';
+    const STORAGE_MODEL = 'claudeModel';
+    const STORAGE_GITHUB_PAT = 'githubPAT';
+    const GITHUB_REPO = 'wataru-surf/wave-forecast';
+    const GITHUB_HISTORY_PATH = 'surf_history.json';
+
+    function getApiKey() {
+      return localStorage.getItem(STORAGE_KEY) || '';
+    }
+
+    function getModel() {
+      return localStorage.getItem(STORAGE_MODEL) || 'claude-haiku-4-5-20251001';
+    }
+
+    function selectModel(model) {
+      document.querySelectorAll('.model-radio').forEach(b => b.classList.remove('selected'));
+      document.querySelector(`.model-radio[data-model="${model}"]`).classList.add('selected');
+      localStorage.setItem(STORAGE_MODEL, model);
+    }
+
+    function saveSettings() {
+      const key = document.getElementById('apiKeyInput').value.trim();
+      if (!key) {
+        showToast('APIキーを入力してください');
+        return;
+      }
+      if (!key.startsWith('sk-ant-')) {
+        showToast('⚠️ キーの形式が正しくないようです');
+        return;
+      }
+      localStorage.setItem(STORAGE_KEY, key);
+      updateKeyStatus();
+      showToast('✓ 保存しました', 'success');
+    }
+
+    function clearApiKey() {
+      if (!confirm('APIキーを削除しますか？')) return;
+      localStorage.removeItem(STORAGE_KEY);
+      document.getElementById('apiKeyInput').value = '';
+      updateKeyStatus();
+      showToast('削除しました');
+    }
+
+    function updateKeyStatus() {
+      const key = getApiKey();
+      const el = document.getElementById('keyStatus');
+      if (key) {
+        const masked = key.substring(0, 12) + '...' + key.substring(key.length - 4);
+        el.innerHTML = `<div class="settings-status ok">✓ キー設定済み（${masked}）</div>`;
+      } else {
+        el.innerHTML = `<div class="settings-status ng">✗ キー未設定</div>`;
+      }
+    }
+
+    async function callClaude(systemPrompt, userPrompt, maxTokens = 300) {
+      const key = getApiKey();
+      if (!key) throw new Error('APIキーが設定されていません');
+
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: getModel(),
+          max_tokens: maxTokens,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }]
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.error?.message || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      return data.content[0].text.trim();
+    }
+
+    function showTestResult(msg, isOk) {
+      const el = document.getElementById('testResult');
+      const cls = isOk ? 'ok' : 'ng';
+      const icon = isOk ? '✓' : '✗';
+      el.innerHTML = `<div class="settings-status ${cls}" style="white-space:pre-wrap;word-break:break-all;">${icon} ${msg}</div>`;
+    }
+
+    async function testApiConnection() {
+      const inputKey = document.getElementById('apiKeyInput').value.trim();
+      const savedKey = getApiKey();
+
+      if (!savedKey && !inputKey) {
+        showTestResult('APIキーを入力してから「保存」を押してください', false);
+        return;
+      }
+      if (inputKey && inputKey !== savedKey) {
+        showTestResult('先に「💾 保存」ボタンを押してからテストしてください', false);
+        return;
+      }
+
+      showTestResult(`テスト中... (モデル: ${getModel()})`, true);
+
+      try {
+        const result = await callClaude(
+          'あなたは簡潔に答えるアシスタントです。',
+          'こんにちは、一言で返答してください。',
+          30
+        );
+        showTestResult(`接続OK！ Claudeの返答: 「${result}」`, true);
+      } catch (e) {
+        showTestResult(`エラー: ${e.message}\nモデル: ${getModel()}`, false);
+      }
+    }
+
+    async function generateAIComment() {
+      if (!getApiKey()) {
+        showToast('⚙️ 設定からAPIキーを入力してください');
+        showPage('settings');
+        return;
+      }
+      const btn = document.getElementById('aiGenBtn');
+      btn.disabled = true;
+      btn.classList.add('loading');
+      btn.textContent = ' AI生成中...';
+
+      const systemPrompt = `あなたは茨城県東海村のサーファー「わたる」さんのInstagram朝イチ波情報投稿のコメント文を書くアシスタントです。
+
+【わたるさんの文体サンプル】
+・「やや面がざわつき、ミドル付近は厚めでダラダラなコンディション🏄‍♂️\\nうまく波を選べば楽しめそうです。」
+・「風弱くクリーンなコンディション🏄‍♂️\\n小波ですがファンウェーブ楽しめそうです。」
+・「オンショアで面がバタついてます🏄‍♂️\\n浮力あるボードで対応したい。」
+・「強い北東風で面崩れ、まとまりなし。切れ目からライド可能だが上級者向け🏄‍♂️」
+
+【ルール】
+・「今朝は」に続く形で、コメント本文のみを出力する（「今朝は」は含めない）
+・2〜3行、合計60〜100文字
+・🏄‍♂️絵文字を1回入れる
+・ハッシュタグ・署名・前置き・説明は一切不要
+・波のコンディションを具体的に、ファン向けトーンで
+・上級者向け条件なら注意喚起も添える`;
+
+      const userPrompt = `以下の条件で今朝のコメントを書いてください：
+ポイント: ${state.point}
+時間: ${state.hour}:${state.minute}
+風向: ${state.windDir}
+風速: ${state.windSpeed.toFixed(1)}m/s
+サイズ: ${state.size}
+天気: ${state.weather}
+潮汐: ${state.tide}
+評価: ${state.rating}（5点刻み、×0-◎100のスコア）`;
+
+      try {
+        const comment = await callClaude(systemPrompt, userPrompt, 200);
+        state.comment = comment;
+        document.querySelectorAll('#commentGrid .comment-btn').forEach(b => b.classList.remove('selected'));
+        updateOutput();
+        showToast('✓ AI生成完了！', 'success');
+        setTimeout(() => showPage('output'), 600);
+      } catch (e) {
+        showToast(`✗ ${e.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        btn.textContent = '🤖 AIで今朝のコメントを生成';
+      }
+    }
+
+    // ===== 風自動取得（Open-Meteo / 東海村: 36.46, 140.57） =====
+    async function fetchCurrentWind() {
+      const btn = document.getElementById('windFetchBtn');
+      btn.disabled = true;
+      btn.textContent = '取得中...';
+      try {
+        const res = await fetch(
+          'https://api.open-meteo.com/v1/forecast?latitude=36.46&longitude=140.57' +
+          '&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=ms&timezone=Asia%2FTokyo'
+        );
+        const data = await res.json();
+        const speedRaw = data.current.wind_speed_10m;
+        const deg     = data.current.wind_direction_10m;
+
+        // 度数 → 16方位
+        const dirs16 = ['北','北北東','北東','東北東','東','東南東','南東','南南東',
+                        '南','南南西','南西','西南西','西','西北西','北西','北北西'];
+        const idx = Math.round(deg / 22.5) % 16;
+        const dirName = dirs16[idx];
+        const speed   = Math.round(speedRaw * 10) / 10;
+
+        state.windDir   = dirName;
+        state.windSpeed = speed;
+        document.getElementById('windSpeedDisplay').textContent = speed.toFixed(1);
+
+        // ボタン選択状態を更新
+        document.querySelectorAll('[data-state-key="windDir"] .select-btn').forEach(b => {
+          b.classList.toggle('selected', b.textContent.trim() === dirName);
+        });
+        updateOutput();
+        showToast(`✓ ${dirName} ${speed.toFixed(1)}m/s を取得`, 'success');
+      } catch (e) {
+        showToast('取得失敗: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🌬 現在の風を自動取得（東海村）';
+      }
+    }
+
+    // ===== GitHub 同期 =====
+    function getGithubPAT() {
+      return localStorage.getItem(STORAGE_GITHUB_PAT) || '';
+    }
+
+    function saveGithubSettings() {
+      const pat = document.getElementById('githubPatInput').value.trim();
+      if (!pat) { showToast('PATを入力してください'); return; }
+      if (!pat.startsWith('ghp_') && !pat.startsWith('github_pat_')) {
+        showToast('⚠️ PATの形式が正しくないようです（ghp_ で始まるはずです）');
+        return;
+      }
+      localStorage.setItem(STORAGE_GITHUB_PAT, pat);
+      updateGithubStatus();
+      showToast('✓ PAT保存しました', 'success');
+    }
+
+    function clearGithubPAT() {
+      if (!confirm('GitHub PATを削除しますか？')) return;
+      localStorage.removeItem(STORAGE_GITHUB_PAT);
+      document.getElementById('githubPatInput').value = '';
+      updateGithubStatus();
+      showToast('削除しました');
+    }
+
+    function updateGithubStatus() {
+      const pat = getGithubPAT();
+      const el = document.getElementById('githubStatus');
+      if (!el) return;
+      if (pat) {
+        const masked = pat.substring(0, 8) + '...' + pat.substring(pat.length - 4);
+        el.innerHTML = `<div class="settings-status ok">✓ PAT設定済み（${masked}）</div>`;
+      } else {
+        el.innerHTML = `<div class="settings-status ng">✗ PAT未設定（自動同期は無効）</div>`;
+      }
+    }
+
+    function ratingToScore(ratingStr) {
+      const num = parseInt((ratingStr || '▽30').replace(/[×▽△○◎]/g, ''), 10) || 30;
+      if (num <= 5)  return 1;
+      if (num <= 35) return 2;
+      if (num <= 65) return 3;
+      if (num <= 85) return 4;
+      return 5;
+    }
+
+    function sizeToM(sizeStr) {
+      const map = {
+        'フラット': 0.0, 'スネ': 0.15, 'ヒザ': 0.3, 'モモ': 0.5,
+        '腰': 0.6, '腹': 0.8, '胸': 1.0, '肩': 1.2, '頭': 1.5, '頭オーバー': 1.8
+      };
+      return map[sizeStr] ?? 0.8;
+    }
+
+    function convertToSurfHistory(entry) {
+      return {
+        date:            entry.date,
+        time:            entry.time,
+        wind_dir:        entry.windDir,
+        wind_speed_ms:   parseFloat(entry.windSpeed) || 0,
+        wave_size:       entry.size,
+        wave_size_m_est: sizeToM(entry.size),
+        conditions_note: (entry.comment || '').replace(/\n/g, ' ').substring(0, 100),
+        rating:          ratingToScore(entry.rating),
+        post_id:         'local_' + String(entry.id),
+        caption_head:    (entry.post || '').substring(0, 80).replace(/\n/g, ' ')
+      };
+    }
+
+    async function syncToGitHub(manual = false) {
+      const pat = getGithubPAT();
+      if (!pat) {
+        if (manual) showToast('⚙️ GitHub PATを設定してください');
+        return;
+      }
+
+      // クソ下ポイントのみ同期
+      const localHistory = getHistory().filter(h => h.point === 'クソ下');
+      if (localHistory.length === 0) {
+        if (manual) showToast('同期するデータがありません（クソ下のみ対象）');
+        return;
+      }
+
+      const headers = {
+        'Authorization': `Bearer ${pat}`,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json'
+      };
+      const apiUrl = `https://api.github.com/repos/${GITHUB_REPO}/contents/${GITHUB_HISTORY_PATH}`;
+
+      try {
+        // 現在のファイルを取得
+        const getResp = await fetch(apiUrl, { headers });
+        let currentHistory = [];
+        let sha = '';
+        if (getResp.ok) {
+          const getJson = await getResp.json();
+          sha = getJson.sha;
+          try {
+            currentHistory = JSON.parse(atob(getJson.content.replace(/\n/g, '')));
+          } catch (_) { currentHistory = []; }
+        }
+
+        // ローカルデータを変換してマージ（date単位で重複排除）
+        const newEntries = localHistory.map(convertToSurfHistory);
+        const existingDates = new Set(currentHistory.map(h => h.date));
+        const toAdd = newEntries.filter(e => !existingDates.has(e.date));
+
+        if (toAdd.length === 0 && !manual) return;  // 新規なし・自動実行なら何もしない
+
+        const merged = [...toAdd, ...currentHistory]
+          .sort((a, b) => b.date.localeCompare(a.date))
+          .slice(0, 365);
+
+        // Base64エンコードしてPUT
+        const content = btoa(unescape(encodeURIComponent(JSON.stringify(merged, null, 2))));
+        const putBody = { message: `📊 Update surf history ${new Date().toISOString().substring(0, 10)}`, content };
+        if (sha) putBody.sha = sha;
+
+        const putResp = await fetch(apiUrl, {
+          method: 'PUT', headers,
+          body: JSON.stringify(putBody)
+        });
+
+        if (putResp.ok) {
+          showToast(`☁️ GitHub同期完了（+${toAdd.length}件）`, 'success');
+        } else {
+          const err = await putResp.json();
+          throw new Error(err.message || `HTTP ${putResp.status}`);
+        }
+      } catch (e) {
+        if (manual) showToast(`☁️ 同期失敗: ${e.message}`);
+        console.error('GitHub sync error:', e);
+      }
+    }
+
+    // 初期化
+    function init() {
+      createSelectGrid('hourGrid', hours, 'hour');
+      createSelectGrid('minuteGrid', minutes, 'minute');
+      createSelectGrid('pointGrid', points, 'point');
+      createSelectGrid('windDirGrid', windDirs, 'windDir');
+      createSelectGrid('sizeGrid', sizes, 'size');
+      createSelectGrid('weatherGrid', weathers, 'weather', true);
+      createSelectGrid('tideGrid', tides, 'tide');
+      createRatingGrids();
+      createCommentGrid();
+      updateOutput();
+      updateKeyStatus();
+      selectModel(getModel());
+      const savedKey = getApiKey();
+      if (savedKey) document.getElementById('apiKeyInput').value = savedKey;
+      updateGithubStatus();
+      const savedPAT = getGithubPAT();
+      if (savedPAT) document.getElementById('githubPatInput').value = savedPAT;
+
+      // 現在時刻を時間に反映
+      const now = new Date();
+      const h = String(now.getHours());
+      const m = String(now.getMinutes());
+      if (hours.includes(h)) {
+        state.hour = h;
+        document.querySelectorAll('[data-state-key="hour"] .select-btn').forEach(b => {
+          b.classList.toggle('selected', b.textContent.trim() === h);
+        });
+      }
+      const roundedMin = String(Math.floor(now.getMinutes() / 5) * 5).padStart(2, '0');
+      if (minutes.includes(roundedMin)) {
+        state.minute = roundedMin;
+        document.querySelectorAll('[data-state-key="minute"] .select-btn').forEach(b => {
+          b.classList.toggle('selected', b.textContent.trim() === roundedMin);
+        });
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
