@@ -28,7 +28,8 @@ jobs:
       # ── STEP 1: Instagramから実績データを収集 ──
       - name: Instagram実績データ収集
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
+          INSTAGRAM_SESSION:    ${{ secrets.INSTAGRAM_SESSION }}
         run: python collect_instagram.py
         continue-on-error: true   # 失敗してもLINE送信は続ける
 

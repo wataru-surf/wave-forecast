@@ -79,6 +79,25 @@ def main():
         save_metadata=False,
         quiet=True,
     )
+
+    # GitHub Secret の INSTAGRAM_SESSION からセッションを復元
+    session_b64 = os.environ.get("INSTAGRAM_SESSION", "")
+    if session_b64:
+        import tempfile, base64
+        session_bytes = base64.b64decode(session_b64)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".session") as f:
+            f.write(session_bytes)
+            session_path = f.name
+        try:
+            L.load_session_from_file(INSTAGRAM_USER, session_path)
+            print("✅ Instagramセッション読み込み完了")
+        except Exception as e:
+            print(f"⚠️  セッション読み込み失敗（未ログインで試行）: {e}", file=sys.stderr)
+        finally:
+            os.unlink(session_path)
+    else:
+        print("⚠️  INSTAGRAM_SESSION が未設定。未認証でアクセスします（失敗する場合あり）")
+
     try:
         profile = instaloader.Profile.from_username(L.context, INSTAGRAM_USER)
     except Exception as e:
