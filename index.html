@@ -730,9 +730,10 @@
           🤖 AIで今朝のコメントを生成
         </button>
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:12px; text-align:center;">
-          ↓ またはプリセットから選択
+          ↓ またはタグを複数選択（組み合わせ可）
         </div>
         <div id="commentGrid"></div>
+        <div id="commentPreview" style="font-size:0.8rem; color:var(--muted); margin-top:8px; padding:8px; background:var(--surface); border-radius:8px; min-height:36px; white-space:pre-wrap;"></div>
       </div>
 
       <!-- 投稿文を見るボタン -->
@@ -892,7 +893,8 @@
       weather: '🌤',
       tide: '中潮',
       rating: '▽30',
-      comment: 'やや面がざわつき、ミドル付近は厚めでダラダラなコンディション🏄‍♂️\nうまく波を選べば楽しめそうです。'
+      comment: '',
+      selectedTags: []
     };
 
     // 選択肢データ
@@ -911,16 +913,26 @@
     const ratings4 = ['○70', '○75', '○80', '○85'];  // ○ 大満足
     const ratings5 = ['◎90', '◎95', '◎100'];  // ◎ エクセレント
     
-    const comments = [
-      { label: '面ざわつき・ダラダラ', text: 'やや面がざわつき、ミドル付近は厚めでダラダラなコンディション🏄‍♂️\nうまく波を選べば楽しめそうです。' },
-      { label: 'クリーン・ファンウェーブ', text: '風弱くクリーンなコンディション🏄‍♂️\n小波ですがファンウェーブ楽しめそうです。' },
-      { label: 'オンショア・バタつき', text: 'オンショアで面がバタついてます🏄‍♂️\n浮力あるボードで対応したい。' },
-      { label: 'グラッシー・綺麗', text: 'グラッシーで綺麗な波🏄‍♂️\n良い波を選んで楽しめそうです。' },
-      { label: 'サイズアップ・パワフル', text: 'サイズアップしてパワフル🏄‍♂️\nしっかりしたセットが入ってます。' },
-      { label: 'スモール・タルめ', text: 'スモールでタルめのコンディション🏄‍♂️\nロングか浮力あるボード向け。' },
-      { label: 'ハードコンディション', text: '風が強くハードコンディション🏄‍♂️\n上級者向け、注意が必要です。' },
-      { label: '穏やか・初心者向け', text: '穏やかで初心者にも良さそう🏄‍♂️\nのんびりサーフィン日和です。' }
+    const commentTags = [
+      { key: '波数多くハード',          phrase: '波数多くハード',           advice: '上級者向け、注意が必要です。' },
+      { key: 'サイズアップ・パワフル',  phrase: 'サイズアップしてパワフル', advice: 'しっかりしたセットが入ってます。' },
+      { key: '厚くダラダラ・割れにくい', phrase: '厚くダラダラ割れにくい',  advice: 'うまく波を選びたい。' },
+      { key: 'ワイド',                 phrase: 'ワイドブレイク',           advice: 'ショートセクションを狙いたい。' },
+      { key: '面ざわつき',             phrase: '面がざわついてます',       advice: 'うまく波を選べば楽しめそうです。' },
+      { key: 'クリーン・ファンウェーブ', phrase: 'クリーンなファンウェーブ', advice: '良い波を選んで楽しめそうです。' },
+      { key: 'スモール',               phrase: 'スモール',               advice: 'ロングか浮力あるボード向け。' },
+      { key: 'ほぼフラット',            phrase: 'ほぼフラット',            advice: 'サーフィンは厳しそうです。' },
     ];
+
+    function buildCommentFromTags() {
+      const tags = (state.selectedTags || [])
+        .map(k => commentTags.find(t => t.key === k))
+        .filter(Boolean);
+      if (tags.length === 0) return '';
+      const phrases = tags.map(t => t.phrase).join('、');
+      const advice = tags[tags.length - 1].advice;
+      return `${phrases}なコンディション🏄‍♂️\n${advice}`;
+    }
 
     // グリッド生成
     function createSelectGrid(containerId, options, stateKey, isEmoji = false, btnClass = 'small') {
@@ -971,22 +983,37 @@
       });
     }
 
-    // コメントグリッド生成
+    // コメントグリッド生成（複数選択対応）
     function createCommentGrid() {
       const container = document.getElementById('commentGrid');
       container.innerHTML = '';
-      comments.forEach((c, i) => {
+      commentTags.forEach(c => {
         const btn = document.createElement('button');
-        btn.className = `comment-btn${state.comment === c.text ? ' selected' : ''}`;
-        btn.textContent = c.label;
+        const isSelected = (state.selectedTags || []).includes(c.key);
+        btn.className = `comment-btn${isSelected ? ' selected' : ''}`;
+        btn.textContent = c.key;
         btn.onclick = () => {
-          state.comment = c.text;
-          document.querySelectorAll('#commentGrid .comment-btn').forEach(b => b.classList.remove('selected'));
-          btn.classList.add('selected');
+          if (!state.selectedTags) state.selectedTags = [];
+          const idx = state.selectedTags.indexOf(c.key);
+          if (idx >= 0) {
+            state.selectedTags.splice(idx, 1);
+            btn.classList.remove('selected');
+          } else {
+            state.selectedTags.push(c.key);
+            btn.classList.add('selected');
+          }
+          state.comment = buildCommentFromTags();
+          updateCommentPreview();
           updateOutput();
         };
         container.appendChild(btn);
       });
+    }
+
+    function updateCommentPreview() {
+      const el = document.getElementById('commentPreview');
+      if (!el) return;
+      el.textContent = state.comment || '（タグを選択するとここにプレビューが表示されます）';
     }
 
     // 風速調整
@@ -1320,7 +1347,9 @@ ${state.windDir}風 ${state.windSpeed.toFixed(1)}m
       try {
         const comment = await callClaude(systemPrompt, userPrompt, 200);
         state.comment = comment;
+        state.selectedTags = [];
         document.querySelectorAll('#commentGrid .comment-btn').forEach(b => b.classList.remove('selected'));
+        updateCommentPreview();
         updateOutput();
         showToast('✓ AI生成完了！', 'success');
         setTimeout(() => showPage('output'), 600);
