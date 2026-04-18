@@ -630,7 +630,14 @@
   <main class="main-content">
     <!-- 入力ページ -->
     <div class="page active" id="page-input">
-      
+
+      <!-- 日付 -->
+      <div class="section">
+        <div class="section-title">📅 日付</div>
+        <input type="date" id="dateInput" class="settings-input" style="font-size:1rem;" onchange="updateOutput()">
+        <div style="font-size:0.8rem; color:var(--muted); margin-top:4px;">過去の記録を入力する場合は日付を変更してください</div>
+      </div>
+
       <!-- 時間 -->
       <div class="section">
         <div class="section-title">⏰ 時間</div>
@@ -991,18 +998,24 @@
     }
 
     // 日付関連
+    function getSelectedDate() {
+      const val = document.getElementById('dateInput')?.value;
+      if (val) return new Date(val + 'T00:00:00');
+      return new Date();
+    }
+
     function getDayOfWeek() {
-      return ['日', '月', '火', '水', '木', '金', '土'][new Date().getDay()];
+      return ['日', '月', '火', '水', '木', '金', '土'][getSelectedDate().getDay()];
     }
 
     function getFormattedDate() {
-      const now = new Date();
-      return `${now.getMonth() + 1}月${now.getDate()}日（${getDayOfWeek()}）`;
+      const d = getSelectedDate();
+      return `${d.getMonth() + 1}月${d.getDate()}日（${getDayOfWeek()}）`;
     }
 
     function getISODate() {
-      const now = new Date();
-      return `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+      const d = getSelectedDate();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
 
     // サイズタグ
@@ -1516,8 +1529,12 @@ ${state.windDir}風 ${state.windSpeed.toFixed(1)}m
       const savedPAT = getGithubPAT();
       if (savedPAT) document.getElementById('githubPatInput').value = savedPAT;
 
-      // 現在時刻を時間に反映
+      // 今日の日付をデフォルトにセット
       const now = new Date();
+      document.getElementById('dateInput').value =
+        `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+      // 現在時刻を時間に反映
       const h = String(now.getHours());
       const m = String(now.getMinutes());
       if (hours.includes(h)) {
