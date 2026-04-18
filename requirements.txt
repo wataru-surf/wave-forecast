@@ -1,2 +1,2 @@
 requests>=2.31.0
-instaloader>=4.10
+instagrapi>=2.0
