@@ -8,7 +8,8 @@
   <meta name="apple-mobile-web-app-title" content="波情報AI">
   <meta name="theme-color" content="#0a2463">
   <title>🏄 波情報AIジェネレーター</title>
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏄</text></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23D97757'/><circle cx='74' cy='30' r='9' fill='%23F5F0EA'/><path d='M6 58 Q22 46 38 58 T70 58 T100 58' stroke='%23F5F0EA' stroke-width='5' fill='none' stroke-linecap='round'/><path d='M6 78 Q22 66 38 78 T70 78 T100 78' stroke='%23F5F0EA' stroke-width='5' fill='none' stroke-linecap='round'/></svg>">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23D97757'/><circle cx='74' cy='30' r='9' fill='%23F5F0EA'/><path d='M6 58 Q22 46 38 58 T70 58 T100 58' stroke='%23F5F0EA' stroke-width='5' fill='none' stroke-linecap='round'/><path d='M6 78 Q22 66 38 78 T70 78 T100 78' stroke='%23F5F0EA' stroke-width='5' fill='none' stroke-linecap='round'/></svg>">
   <style>
     :root {
       --ocean-deep: #0a2463;
@@ -795,6 +796,14 @@
 
     <!-- 履歴ページ -->
     <div class="page" id="page-history">
+      <div style="margin-bottom:12px; display:flex; gap:8px;">
+        <button id="syncAllBtn" class="action-btn primary" onclick="syncAllToSheets()" style="margin-bottom:0; font-size:0.95rem; padding:14px;">
+          📊 全履歴をシートへ送信
+        </button>
+        <button class="action-btn secondary" onclick="syncToGitHub(true)" style="margin-bottom:0; font-size:0.95rem; padding:14px; flex:0 0 auto; width:auto; white-space:nowrap;">
+          ☁️ GitHub更新
+        </button>
+      </div>
       <div id="historyList"></div>
     </div>
 
@@ -1228,6 +1237,7 @@ ${state.windDir}風 ${state.windSpeed.toFixed(1)}m
     const GITHUB_REPO = 'wataru-surf/wave-forecast';
     const GITHUB_HISTORY_PATH = 'surf_history.json';
     const STORAGE_GAS_URL = 'gasUrl';
+    const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzERJleOykziw_irjvzXRTIb_Mg5sll4oInNZZGZb_RL4tWb3XQMrn7gwiYRcffDK4H0g/exec';
 
     function getApiKey() {
       return localStorage.getItem(STORAGE_KEY) || '';
@@ -1435,7 +1445,7 @@ ${state.windDir}風 ${state.windSpeed.toFixed(1)}m
 
     // ===== Google スプレッドシート自動保存 =====
     function getGasUrl() {
-      return localStorage.getItem(STORAGE_GAS_URL) || '';
+      return localStorage.getItem(STORAGE_GAS_URL) || DEFAULT_GAS_URL;
     }
 
     function saveGasSettings() {
@@ -1511,6 +1521,39 @@ ${state.windDir}風 ${state.windSpeed.toFixed(1)}m
       } catch (e) {
         showToast(`✗ エラー: ${e.message}`);
       }
+    }
+
+    // ===== スプレッドシート一括送信 =====
+    async function syncAllToSheets() {
+      const url = getGasUrl();
+      if (!url) { showToast('GAS URLが設定されていません'); return; }
+      const history = getHistory();
+      if (history.length === 0) { showToast('履歴がありません'); return; }
+
+      const btn = document.getElementById('syncAllBtn');
+      if (btn) { btn.disabled = true; btn.textContent = '送信中...'; }
+
+      let ok = 0, fail = 0;
+      for (const entry of history) {
+        try {
+          await fetch(url, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              date: entry.date, time: entry.time, tide: entry.tide,
+              size: entry.size, windDir: entry.windDir, windSpeed: entry.windSpeed,
+              rating: entry.rating, comment: (entry.comment || '').replace(/\n/g, ' '),
+              point: entry.point, weather: entry.weather
+            })
+          });
+          ok++;
+          await new Promise(r => setTimeout(r, 300)); // スプレッドシートへの負荷軽減
+        } catch (e) { fail++; }
+      }
+
+      if (btn) { btn.disabled = false; btn.textContent = '📊 全履歴をシートへ送信'; }
+      showToast(`✅ ${ok}件送信完了${fail > 0 ? `（${fail}件失敗）` : ''}`, 'success');
     }
 
     // ===== GitHub 同期 =====
