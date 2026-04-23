@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 東海村 週間波予測スクリプト
-毎晩22時(JST)にGitHub Actionsで実行 → LINEに送信
+毎晩19時(JST)にGitHub Actionsで実行 → LINEに送信
 """
 import os, json, datetime, requests
 
@@ -74,7 +74,7 @@ def tide_phase(date: datetime.date) -> str:
 
 # ── 波高 → わたるさん単位変換 ──
 def wave_size(m: float) -> str:
-    if m < 0.1:  return "フラット"
+    if m < 0.1:  return "フラット（波なし）"
     if m < 0.3:  return "スネ〜ヒザ"
     if m < 0.5:  return "ヒザ〜モモ"
     if m < 0.7:  return "モモ〜腰"
@@ -119,15 +119,21 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
     for d in days_data:
         user += (
             f"【{d['date']}（{d['dow']}）】\n"
-            f"  波高: {d['wave_size']}  うねり: {d['swell_h']:.1f}m\n"
+            f"  波高: {d['wave_size']}  うねり: {d['swell_size']}（{d['swell_h']:.1f}m）\n"
             f"  風: {d['wind_dir']} {d['wind_speed']:.1f}m/s  {d['weather']}\n"
             f"  潮汐: {d['tide']}\n\n"
         )
     user += (
-        "\n出力フォーマット（各日1〜2行）:\n"
-        "📅 [日付]（[曜]）[サイズ] [風向/速] [評価マーク] [一言コメント]\n"
-        "最後に「今週のベストコンディション」を一行でまとめる。\n"
-        "全体300文字以内。ハッシュタグ不要。"
+        "\n出力フォーマット（各日2行）:\n"
+        "📅 [月/日]（[曜]）[天気絵文字] 🌊[波サイズ（パーツ表記）]\n"
+        "   💨[風向][速度]m/s ／ [コンディション一言（例：オフショアで面ツル、オンショアでジャンク、etc）]\n"
+        "\n必須ルール:\n"
+        "・🌊の後には必ず波のサイズをパーツ表記（スネ/ヒザ/モモ/腰/腹/胸/肩/頭など）で書く。\n"
+        "・波がない日は「🌊フラット（波なし）」と明記する。\n"
+        "・風は向きと強さ（m/s）を必ず両方書く。オフショア/オンショア/サイドも一言に含める。\n"
+        "・コンディション一言は面の状態（面ツル/ザワつき/ジャンク）や入れるかどうかを具体的に。\n"
+        "最後に「今週のベスト」を一行でまとめる。\n"
+        "全体400文字以内。ハッシュタグ不要。"
     )
 
     r = requests.post(
@@ -175,11 +181,13 @@ def main():
     for i in range(1, 8):   # 明日〜7日後
         date_str = raw["time"][i]
         date_obj = datetime.date.fromisoformat(date_str)
+        swell_h_val = raw["swell_wave_height_max"][i] or 0
         days_data.append({
             "date":       f"{date_obj.month}/{date_obj.day}",
             "dow":        dows[date_obj.weekday()],
             "wave_size":  wave_size(raw["wave_height_max"][i] or 0),
-            "swell_h":    raw["swell_wave_height_max"][i] or 0,
+            "swell_h":    swell_h_val,
+            "swell_size": wave_size(swell_h_val),
             "wind_dir":   wind_dir_name(raw["wind_direction_10m_dominant"][i] or 0),
             "wind_speed": raw["wind_speed_10m_max"][i] or 0,
             "weather":    weather_emoji(raw["weather_code"][i] or 0),
