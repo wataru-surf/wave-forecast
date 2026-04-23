@@ -1,9 +1,9 @@
-name: 東海村 週間波予測（毎晩22時）
+name: 東海村 週間波予測（毎晩19時）
 
 on:
   schedule:
-    # 毎晩22:00 JST = 13:00 UTC
-    - cron: '0 13 * * *'
+    # 毎晩19:00 JST = 10:00 UTC
+    - cron: '0 10 * * *'
   workflow_dispatch:   # 手動実行ボタン
 
 permissions:
