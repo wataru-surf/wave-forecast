@@ -44,19 +44,35 @@ def build_history_context(history: list[dict], days: int = 14) -> str:
 
 # ── 気象・波データ取得 (Open-Meteo / 無料・認証不要) ──
 def fetch_forecast():
-    url = (
+    # 風・天気データ（通常のforecast API）
+    weather_url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={LAT}&longitude={LON}"
         "&daily=wind_speed_10m_max,wind_direction_10m_dominant,"
-        "wave_height_max,wave_period_max,swell_wave_height_max,"
-        "swell_wave_direction_dominant,precipitation_sum,weather_code"
+        "precipitation_sum,weather_code"
         "&wind_speed_unit=ms"
         "&timezone=Asia%2FTokyo"
         "&forecast_days=8"
     )
-    r = requests.get(url, timeout=15)
-    r.raise_for_status()
-    return r.json()["daily"]
+    wr = requests.get(weather_url, timeout=15)
+    wr.raise_for_status()
+    weather = wr.json()["daily"]
+
+    # 波・うねりデータ（Marine API ← ここが修正ポイント）
+    marine_url = (
+        "https://marine-api.open-meteo.com/v1/marine"
+        f"?latitude={LAT}&longitude={LON}"
+        "&daily=wave_height_max,wave_period_max,swell_wave_height_max,"
+        "swell_wave_direction_dominant"
+        "&timezone=Asia%2FTokyo"
+        "&forecast_days=8"
+    )
+    mr = requests.get(marine_url, timeout=15)
+    mr.raise_for_status()
+    marine = mr.json()["daily"]
+
+    # 2つを合体して返す
+    return {**weather, **marine}
 
 # ── 潮汐フェーズ計算（月齢ベース簡易版） ──
 def tide_phase(date: datetime.date) -> str:
