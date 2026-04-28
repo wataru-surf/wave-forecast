@@ -1080,7 +1080,7 @@
     }
 
     // 月齢から潮汐フェーズを計算（forecast.pyと同じロジック）
-    // 潮汐フェーズを tide736.net（大津港 / 東海村最近接）から取得
+    // 潮汐フェーズを tide736.net（那珂湊港 / ひたちなか）から取得
     async function autoSetTide() {
       const btn = document.getElementById('tideAutoBtn');
       btn.disabled = true;
@@ -1091,7 +1091,7 @@
       const dy = String(d.getDate()).padStart(2, '0');
       const dateKey = `${yr}-${mn}-${dy}`;
       try {
-        const url = `https://tide736.net/api/get_tide.php?pc=08&hc=1&yr=${yr}&mn=${mn}&dy=${dy}&rg=day`;
+        const url = `https://tide736.net/api/get_tide.php?pc=08&hc=3&yr=${yr}&mn=${mn}&dy=${dy}&rg=day`;
         const res = await fetch(url);
         const data = await res.json();
         const moon  = data.tide.chart[dateKey].moon;
@@ -1101,7 +1101,7 @@
         createSelectGrid('tideGrid', ['大潮', '中潮', '小潮', '長潮', '若潮'], 'tide');
         updateOutput();
         const note = document.getElementById('tideAutoNote');
-        note.textContent = `月齢 ${age} → ${phase}（大津港・実測データ）`;
+        note.textContent = `月齢 ${age} → ${phase}（那珂湊・ひたちなか）`;
         note.style.display = 'block';
         showToast(`🌙 ${phase} を自動設定しました`, 'success');
       } catch (e) {
