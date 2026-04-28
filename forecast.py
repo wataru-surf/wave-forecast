@@ -52,27 +52,92 @@ def fetch_forecast():
         "precipitation_sum,weather_code"
         "&wind_speed_unit=ms"
         "&timezone=Asia%2FTokyo"
-        "&forecast_days=8"
+        "&forecast_days=10"
     )
     wr = requests.get(weather_url, timeout=15)
     wr.raise_for_status()
     weather = wr.json()["daily"]
 
-    # 波・うねりデータ（Marine API ← ここが修正ポイント）
+    # 波・うねりデータ（Marine API）
     marine_url = (
         "https://marine-api.open-meteo.com/v1/marine"
         f"?latitude={LAT}&longitude={LON}"
         "&daily=wave_height_max,wave_period_max,swell_wave_height_max,"
         "swell_wave_direction_dominant"
         "&timezone=Asia%2FTokyo"
-        "&forecast_days=8"
+        "&forecast_days=10"
     )
     mr = requests.get(marine_url, timeout=15)
     mr.raise_for_status()
     marine = mr.json()["daily"]
 
-    # 2つを合体して返す
     return {**weather, **marine}
+
+# ── JMA週間予報取得（茨城: 080000）──
+def fetch_jma_weekly() -> dict:
+    """気象庁週間予報 → {date_str: {weatherCode, wind_text, wave_text}}"""
+    try:
+        r = requests.get(
+            "https://www.jma.go.jp/bosai/forecast/data/forecast/080000.json",
+            timeout=15
+        )
+        r.raise_for_status()
+        data = r.json()
+
+        weekly = data[1]  # index 1 = 週間予報
+        ts = weekly["timeSeries"][0]  # 天気コード・風・波
+
+        # 日付リスト（"2026-04-29T05:00:00+09:00" → "2026-04-29"）
+        dates = [d[:10] for d in ts["timeDefines"]]
+
+        # エリア選択（水戸:40201 or 北部:080010 を優先）
+        area_data = None
+        for area in ts["areas"]:
+            if area["area"]["code"] in ("40201", "080010"):
+                area_data = area
+                break
+        if not area_data and ts["areas"]:
+            area_data = ts["areas"][0]
+
+        result = {}
+        if area_data:
+            codes = area_data.get("weatherCodes", [])
+            winds = area_data.get("winds", [])
+            waves = area_data.get("waves", [])
+            for i, date in enumerate(dates):
+                result[date] = {
+                    "weatherCode": codes[i] if i < len(codes) else None,
+                    "wind_text":   winds[i] if i < len(winds) else None,
+                    "wave_text":   waves[i] if i < len(waves) else None,
+                }
+        return result
+    except Exception as e:
+        print(f"JMA週間予報取得失敗（スキップ）: {e}")
+        return {}
+
+# ── JMA天気コード → 絵文字 ──
+def jma_weather_emoji(code: str) -> str:
+    if not code:
+        return "🌤"
+    c = int(code)
+    if c // 100 == 1:
+        return "☀️" if c == 100 else "🌤"
+    if c // 100 == 2:
+        return "⛅"
+    if c // 100 == 3:
+        return "🌧"
+    if c // 100 == 4:
+        return "❄️"
+    return "🌤"
+
+# ── JMA風テキストから方角を抽出 ──
+def jma_wind_dir(wind_text: str) -> str:
+    """'北東の風　やや強く' → '北東'"""
+    if not wind_text:
+        return ""
+    if "の風" in wind_text:
+        return wind_text.split("の風")[0].strip()
+    return ""
 
 # ── 潮汐フェーズ計算（月齢ベース簡易版） ──
 def tide_phase(date: datetime.date) -> str:
@@ -131,14 +196,18 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
     user = "以下のデータから東海村クソ下の7日間波予測をまとめてください：\n\n"
     if history_context:
         user += history_context + "\n\n"
-    user += "【気象モデル予測データ（Open-Meteo）】\n"
+    user += "【予測データ（気象庁JMA + Open-Meteo Marine）】\n"
     for d in days_data:
         user += (
             f"【{d['date']}（{d['dow']}）】\n"
             f"  波高: {d['wave_size']}  うねり: {d['swell_size']}（{d['swell_h']:.1f}m）\n"
             f"  風: {d['wind_dir']} {d['wind_speed']:.1f}m/s  {d['weather']}\n"
-            f"  潮汐: {d['tide']}\n\n"
         )
+        if d.get("jma_wind"):
+            user += f"  JMA風: {d['jma_wind']}\n"
+        if d.get("jma_wave"):
+            user += f"  JMA波: {d['jma_wave']}\n"
+        user += f"  潮汐: {d['tide']}\n\n"
     user += (
         "\n出力フォーマット（各日2行）:\n"
         "📅 [月/日]（[曜]）[天気絵文字] 🌊[波サイズ（パーツ表記）]\n"
@@ -190,25 +259,55 @@ def send_line(text: str):
 
 # ── メイン ──────────────────────────────────────────────
 def main():
-    today = datetime.date.today()
-    raw = fetch_forecast()
+    # JSTで「明日」を計算（GitHub ActionsはUTC動作のため明示的にJSTを使う）
+    jst_now     = datetime.datetime.now(JST)
+    tomorrow_jst = (jst_now + datetime.timedelta(days=1)).date()
+
+    raw = fetch_forecast()   # Open-Meteo（波高・風速・天気コード）
+    jma = fetch_jma_weekly() # JMA週間予報（天気コード・風テキスト・波テキスト）
     days_data = []
     dows = ["月","火","水","木","金","土","日"]
 
-    for i in range(1, 8):   # 明日〜7日後
+    # raw["time"] の中から JST翌日のインデックスを探す
+    start_idx = 1  # フォールバック
+    for idx, t in enumerate(raw["time"]):
+        if datetime.date.fromisoformat(t) == tomorrow_jst:
+            start_idx = idx
+            break
+    print(f"予報開始インデックス: {start_idx}（{raw['time'][start_idx]}〜）")
+
+    for i in range(start_idx, start_idx + 7):
+        if i >= len(raw["time"]):
+            break
         date_str = raw["time"][i]
         date_obj = datetime.date.fromisoformat(date_str)
         swell_h_val = raw["swell_wave_height_max"][i] or 0
+
+        # JMAデータ（その日付があれば優先）
+        jma_day  = jma.get(date_str, {})
+        jma_code = jma_day.get("weatherCode")
+        jma_wind = jma_day.get("wind_text", "")
+        jma_wave = jma_day.get("wave_text", "")
+
+        # 天気絵文字: JMAコードを優先
+        wx_emoji = jma_weather_emoji(jma_code) if jma_code else weather_emoji(raw["weather_code"][i] or 0)
+
+        # 風向き: JMAテキストから方角を取得、なければOpen-Meteoの度数変換
+        jma_dir = jma_wind_dir(jma_wind)
+        wind_dir_str = jma_dir if jma_dir else wind_dir_name(raw["wind_direction_10m_dominant"][i] or 0)
+
         days_data.append({
             "date":       f"{date_obj.month}/{date_obj.day}",
             "dow":        dows[date_obj.weekday()],
             "wave_size":  wave_size(raw["wave_height_max"][i] or 0),
             "swell_h":    swell_h_val,
             "swell_size": wave_size(swell_h_val),
-            "wind_dir":   wind_dir_name(raw["wind_direction_10m_dominant"][i] or 0),
+            "wind_dir":   wind_dir_str,
             "wind_speed": raw["wind_speed_10m_max"][i] or 0,
-            "weather":    weather_emoji(raw["weather_code"][i] or 0),
+            "weather":    wx_emoji,
             "tide":       tide_phase(date_obj),
+            "jma_wind":   jma_wind,
+            "jma_wave":   jma_wave,
         })
 
     history = load_surf_history()
