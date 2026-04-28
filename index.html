@@ -693,7 +693,7 @@
       <div class="section">
         <div class="section-title" style="display:flex;align-items:center;gap:8px;">
           🌙 潮汐
-          <button onclick="autoSetTide()" style="font-size:0.75rem;padding:3px 10px;border-radius:12px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;">🔄 自動</button>
+          <button id="tideAutoBtn" onclick="autoSetTide()" style="font-size:0.75rem;padding:3px 10px;border-radius:12px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer;">🔄 自動</button>
         </div>
         <div class="select-grid five-col" id="tideGrid"></div>
         <div id="tideAutoNote" style="font-size:0.75rem;color:var(--muted);margin-top:4px;display:none;"></div>
@@ -1080,33 +1080,36 @@
     }
 
     // 月齢から潮汐フェーズを計算（forecast.pyと同じロジック）
-    function calcTidePhase(date) {
-      const ref = new Date('2000-01-06T00:00:00+09:00'); // 2000-01-06 新月
-      const lunarCycle = 29.53;
-      const diffDays = (date - ref) / (1000 * 60 * 60 * 24);
-      const age = ((diffDays % lunarCycle) + lunarCycle) % lunarCycle;
-      if (age < 2 || age > 27.5)        return '大潮';
-      if (age > 12 && age < 17)         return '大潮';
-      if (age > 5  && age < 10)         return '小潮';
-      if (age <= 5 || age >= 27)        return '中潮';
-      if (age >= 10 && age <= 13)       return '長潮';
-      return '中潮';
-    }
-
-    function autoSetTide() {
+    // 潮汐フェーズを tide736.net（大津港 / 東海村最近接）から取得
+    async function autoSetTide() {
+      const btn = document.getElementById('tideAutoBtn');
+      btn.disabled = true;
+      btn.textContent = '取得中...';
       const d = getSelectedDate();
-      const phase = calcTidePhase(d);
-      // stateに反映してグリッドを再描画
-      state.tide = phase;
-      createSelectGrid('tideGrid', ['大潮', '中潮', '小潮', '長潮', '若潮'], 'tide');
-      updateOutput();
-      // 月齢を補足表示
-      const ref = new Date('2000-01-06T00:00:00+09:00');
-      const age = (((d - ref) / (1000 * 60 * 60 * 24)) % 29.53 + 29.53) % 29.53;
-      const note = document.getElementById('tideAutoNote');
-      note.textContent = `月齢 ${age.toFixed(1)} → ${phase}（自動計算）`;
-      note.style.display = 'block';
-      showToast(`🌙 ${phase} を自動設定しました`, 'success');
+      const yr = d.getFullYear();
+      const mn = String(d.getMonth() + 1).padStart(2, '0');
+      const dy = String(d.getDate()).padStart(2, '0');
+      const dateKey = `${yr}-${mn}-${dy}`;
+      try {
+        const url = `https://tide736.net/api/get_tide.php?pc=08&hc=1&yr=${yr}&mn=${mn}&dy=${dy}&rg=day`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const moon  = data.tide.chart[dateKey].moon;
+        const phase = moon.title;   // "大潮" / "中潮" / etc.
+        const age   = moon.age;     // 月齢
+        state.tide = phase;
+        createSelectGrid('tideGrid', ['大潮', '中潮', '小潮', '長潮', '若潮'], 'tide');
+        updateOutput();
+        const note = document.getElementById('tideAutoNote');
+        note.textContent = `月齢 ${age} → ${phase}（大津港・実測データ）`;
+        note.style.display = 'block';
+        showToast(`🌙 ${phase} を自動設定しました`, 'success');
+      } catch (e) {
+        showToast('取得失敗: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔄 自動';
+      }
     }
 
     function getFormattedDate() {
@@ -1445,19 +1448,38 @@ ${state.windDir}風 ${state.windSpeed.toFixed(1)}m
       btn.disabled = true;
       btn.textContent = '取得中...';
       try {
+        const d = getSelectedDate();
+        const yr = d.getFullYear();
+        const mn = String(d.getMonth() + 1).padStart(2, '0');
+        const dy = String(d.getDate()).padStart(2, '0');
+        const dateStr = `${yr}-${mn}-${dy}`;
+        const targetHour = parseInt(state.hour) || 6;
+
         const res = await fetch(
           'https://api.open-meteo.com/v1/forecast?latitude=36.46&longitude=140.57' +
-          '&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=ms&timezone=Asia%2FTokyo'
+          '&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=ms&timezone=Asia%2FTokyo' +
+          `&start_date=${dateStr}&end_date=${dateStr}`
         );
         const data = await res.json();
-        const speedRaw = data.current.wind_speed_10m;
-        const deg     = data.current.wind_direction_10m;
+
+        // 選択した時刻に最も近いインデックスを探す
+        const times = data.hourly.time;
+        let idx = 0;
+        let minDiff = Infinity;
+        times.forEach((t, i) => {
+          const h = new Date(t).getHours();
+          const diff = Math.abs(h - targetHour);
+          if (diff < minDiff) { minDiff = diff; idx = i; }
+        });
+
+        const speedRaw = data.hourly.wind_speed_10m[idx];
+        const deg      = data.hourly.wind_direction_10m[idx];
 
         // 度数 → 16方位
         const dirs16 = ['北','北北東','北東','東北東','東','東南東','南東','南南東',
                         '南','南南西','南西','西南西','西','西北西','北西','北北西'];
-        const idx = Math.round(deg / 22.5) % 16;
-        const dirName = dirs16[idx];
+        const dirIdx  = Math.round(deg / 22.5) % 16;
+        const dirName = dirs16[dirIdx];
         const speed   = Math.round(speedRaw * 10) / 10;
 
         state.windDir   = dirName;
@@ -1469,12 +1491,12 @@ ${state.windDir}風 ${state.windSpeed.toFixed(1)}m
           b.classList.toggle('selected', b.textContent.trim() === dirName);
         });
         updateOutput();
-        showToast(`✓ ${dirName} ${speed.toFixed(1)}m/s を取得`, 'success');
+        showToast(`✓ ${dirName} ${speed.toFixed(1)}m/s を取得（${targetHour}時台）`, 'success');
       } catch (e) {
         showToast('取得失敗: ' + e.message);
       } finally {
         btn.disabled = false;
-        btn.textContent = '🌬 現在の風を自動取得（東海村）';
+        btn.textContent = '🌬 風を自動取得（東海村）';
       }
     }
 
