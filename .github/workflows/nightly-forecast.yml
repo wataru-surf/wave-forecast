@@ -1,9 +1,9 @@
-name: 東海村 週間波予測（毎晩19時）
+name: 東海村 週間波予測（19時頃配信）
 
 on:
   schedule:
-    # 毎晩19:00 JST = 10:00 UTC
-    - cron: '0 10 * * *'
+    # 毎晩19:00 JST目標（GitHub Actionsは約6時間遅延のため04:00 UTCに設定）
+    - cron: '0 4 * * *'
   workflow_dispatch:   # 手動実行ボタン
 
 permissions:
