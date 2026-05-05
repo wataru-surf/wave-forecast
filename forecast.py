@@ -230,7 +230,7 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
             "content-type": "application/json",
         },
         json={
-            "model": "claude-haiku-4-5-20251001",
+            "model": "claude-haiku-4-5",
             "max_tokens": 500,
             "system": system,
             "messages": [{"role": "user", "content": user}],
