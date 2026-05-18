@@ -1,10 +1,9 @@
-name: 東海村 週間波予測（19時頃配信）
+name: 東海村 週間波予測（19時配信）
 
 on:
-  schedule:
-    # 毎晩19:00 JST目標（GitHub Actionsは約6時間遅延のため04:00 UTCに設定）
-    - cron: '0 4 * * *'
-  workflow_dispatch:   # 手動実行ボタン
+  # schedule は廃止。macOS launchd が毎晩 19:00 JST に workflow_dispatch で発火する
+  # （GitHub Actions の cron は遅延 5〜13h のブレがあり時刻制御不可のため）
+  workflow_dispatch:   # launchd / 手動実行ボタン
 
 permissions:
   contents: write   # surf_history.json をコミット・プッシュするために必要
