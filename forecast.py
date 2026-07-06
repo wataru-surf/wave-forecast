@@ -3,7 +3,7 @@
 東海村 週間波予測スクリプト
 毎晩19時(JST)にGitHub Actionsで実行 → LINEに送信
 """
-import os, json, datetime, requests
+import os, json, math, datetime, requests
 
 # ── 設定 ──────────────────────────────────────────────
 LAT, LON = 36.46, 140.57        # 東海村クソ下付近
@@ -43,35 +43,75 @@ def build_history_context(history: list[dict], days: int = 14) -> str:
     return "\n".join(lines)
 
 # ── 気象・波データ取得 (Open-Meteo / 無料・認証不要) ──
-def fetch_forecast():
-    # 風・天気データ（通常のforecast API）
+def fetch_forecast() -> tuple[dict, dict]:
+    """日付キーのdictを返す: (daily_by_date, hourly_by_date)
+    daily/hourly を weather API と marine API から取得し、
+    「日付」で突合する（配列インデックスのズレによる取り違えを防ぐ）"""
     weather_url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={LAT}&longitude={LON}"
         "&daily=wind_speed_10m_max,wind_direction_10m_dominant,"
         "precipitation_sum,weather_code"
+        "&hourly=wind_speed_10m,wind_direction_10m"
         "&wind_speed_unit=ms"
         "&timezone=Asia%2FTokyo"
         "&forecast_days=10"
     )
     wr = requests.get(weather_url, timeout=15)
     wr.raise_for_status()
-    weather = wr.json()["daily"]
+    wj = wr.json()
 
-    # 波・うねりデータ（Marine API）
     marine_url = (
         "https://marine-api.open-meteo.com/v1/marine"
         f"?latitude={LAT}&longitude={LON}"
         "&daily=wave_height_max,wave_period_max,swell_wave_height_max,"
         "swell_wave_direction_dominant"
+        "&hourly=wave_height,wave_period"
         "&timezone=Asia%2FTokyo"
         "&forecast_days=10"
     )
     mr = requests.get(marine_url, timeout=15)
     mr.raise_for_status()
-    marine = mr.json()["daily"]
+    mj = mr.json()
 
-    return {**weather, **marine}
+    # ── daily: 日付キーで突合 ──
+    daily: dict[str, dict] = {}
+    wd = wj["daily"]
+    for i, t in enumerate(wd["time"]):
+        daily.setdefault(t, {}).update({
+            "wind_speed_max": wd["wind_speed_10m_max"][i],
+            "wind_dir_dom":   wd["wind_direction_10m_dominant"][i],
+            "weather_code":   wd["weather_code"][i],
+        })
+    md = mj["daily"]
+    for i, t in enumerate(md["time"]):
+        daily.setdefault(t, {}).update({
+            "wave_h_max":  md["wave_height_max"][i],
+            "period_max":  md["wave_period_max"][i],
+            "swell_h_max": md["swell_wave_height_max"][i],
+            "swell_dir":   md["swell_wave_direction_dominant"][i],
+        })
+
+    # ── hourly: 朝イチ窓（5〜8時台）だけ日付キーで抽出 ──
+    hourly: dict[str, dict] = {}
+    wh = wj["hourly"]
+    for i, t in enumerate(wh["time"]):
+        if 5 <= int(t[11:13]) <= 8:
+            slot = hourly.setdefault(t[:10], {})
+            if wh["wind_speed_10m"][i] is not None:
+                slot.setdefault("wind_speeds", []).append(wh["wind_speed_10m"][i])
+            if wh["wind_direction_10m"][i] is not None:
+                slot.setdefault("wind_dirs", []).append(wh["wind_direction_10m"][i])
+    mh = mj["hourly"]
+    for i, t in enumerate(mh["time"]):
+        if 5 <= int(t[11:13]) <= 8:
+            slot = hourly.setdefault(t[:10], {})
+            if mh["wave_height"][i] is not None:
+                slot.setdefault("wave_hs", []).append(mh["wave_height"][i])
+            if mh["wave_period"][i] is not None:
+                slot.setdefault("periods", []).append(mh["wave_period"][i])
+
+    return daily, hourly
 
 # ── JMA週間予報取得（茨城: 080000）──
 def fetch_jma_weekly() -> dict:
@@ -141,16 +181,15 @@ def jma_wind_dir(wind_text: str) -> str:
 
 # ── 潮汐フェーズ計算（月齢ベース簡易版） ──
 def tide_phase(date: datetime.date) -> str:
-    # 2000-01-06 が新月
+    # 2000-01-06 が新月。潮回りは新月・満月の月2周期（約14.8日）で繰り返す
     ref = datetime.date(2000, 1, 6)
-    lunar_cycle = 29.53
-    age = ((date - ref).days % lunar_cycle)
-    if age < 2 or age > 27.5:   return "大潮"
-    if 12 < age < 17:            return "大潮"
-    if 5 < age < 10:             return "小潮"
-    if age <= 5 or 27 <= age:    return "中潮"
-    if 10 <= age <= 12:          return "長潮"
-    if age == 12:                return "若潮"
+    age = (date - ref).days % 29.53
+    h = age % 14.765   # 半周期に折り返す（新月側・満月側を同一視）
+    if h < 2.5:  return "大潮"
+    if h < 6:    return "中潮"
+    if h < 9:    return "小潮"
+    if h < 10:   return "長潮"
+    if h < 11:   return "若潮"
     return "中潮"
 
 # ── 波高 → わたるさん単位変換 ──
@@ -171,6 +210,22 @@ def wind_dir_name(deg: float) -> str:
             "南","南南西","南西","西南西","西","西北西","北西","北北西"]
     return dirs[round(deg / 22.5) % 16]
 
+# ── 風向のベクトル平均（単純平均だと 350°と10°の平均が180°になるのを防ぐ）──
+def vector_avg_dir(degs: list[float]) -> float:
+    x = sum(math.cos(math.radians(d)) for d in degs)
+    y = sum(math.sin(math.radians(d)) for d in degs)
+    return math.degrees(math.atan2(y, x)) % 360
+
+# ── 風向 → 岸との関係（東海村クソ下は東向きの海岸 = 西風がオフショア）──
+def shore_relation(deg: float) -> str:
+    d = abs((deg - 270) % 360)
+    d = min(d, 360 - d)   # オフショア軸(西=270°)からの角度差
+    if d <= 45:   return "オフショア"
+    if d <= 75:   return "サイドオフ"
+    if d <= 105:  return "サイドショア"
+    if d <= 135:  return "サイドオン"
+    return "オンショア"
+
 # ── 天気コード → 絵文字 ──
 def weather_emoji(code: int) -> str:
     if code == 0:       return "☀️"
@@ -189,6 +244,8 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
         "東海村クソ下ポイントの1週間波予測を、地元サーファーのわたるさん向けに"
         "わかりやすく、具体的にまとめてください。"
         "特に朝イチ（5〜8時台）のサーフィン適性に注目してください。"
+        "クソ下の海岸は東向きで、西寄りの風がオフショアです（各日のデータに岸との関係を付記済み）。"
+        "波の周期にも注目してください（周期8秒以上はうねり系で形が良く、6秒以下は風波でまとまりにくい）。"
         "過去の実測データが提供される場合は、それを参考にして予測の精度を高めてください。"
         "数値モデルと実測値の傾向の差異（例：モデルより実際は波が大きい/小さい等）に注目してください。"
     )
@@ -198,10 +255,18 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
         user += history_context + "\n\n"
     user += "【予測データ（気象庁JMA + Open-Meteo Marine）】\n"
     for d in days_data:
+        user += f"【{d['date']}（{d['dow']}）】\n"
+        if d.get("am"):
+            am = d["am"]
+            user += (
+                f"  朝イチ5〜8時: 波 {am['wave_size']}（{am['wave_h']:.1f}m）"
+                f" 周期{am['period']:.0f}秒 ／"
+                f" 風 {am['wind_dir']} {am['wind_speed']:.1f}m/s（{am['shore']}）\n"
+            )
         user += (
-            f"【{d['date']}（{d['dow']}）】\n"
-            f"  波高: {d['wave_size']}  うねり: {d['swell_size']}（{d['swell_h']:.1f}m）\n"
-            f"  風: {d['wind_dir']} {d['wind_speed']:.1f}m/s  {d['weather']}\n"
+            f"  日中: 波高最大 {d['wave_size']}  うねり {d['swell_size']}"
+            f"（{d['swell_h']:.1f}m・{d['swell_dir']}から）  周期最大{d['period_max']:.0f}秒\n"
+            f"  最大風: {d['wind_dir']} {d['wind_speed']:.1f}m/s（{d['shore']}）  {d['weather']}\n"
         )
         if d.get("jma_wind"):
             user += f"  JMA風: {d['jma_wind']}\n"
@@ -216,6 +281,7 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
         "・🌊の後には必ず波のサイズをパーツ表記（スネ/ヒザ/モモ/腰/腹/胸/肩/頭など）で書く。\n"
         "・波がない日は「🌊フラット（波なし）」と明記する。\n"
         "・風は向きと強さ（m/s）を必ず両方書く。オフショア/オンショア/サイドも一言に含める。\n"
+        "・風・コンディションは朝イチ5〜8時のデータを優先して判断する。\n"
         "・コンディション一言は面の状態（面ツル/ザワつき/ジャンク）や入れるかどうかを具体的に。\n"
         "最後に「今週のベスト」を一行でまとめる。\n"
         "全体400文字以内。ハッシュタグ不要。\n"
@@ -231,7 +297,7 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
         },
         json={
             "model": "claude-haiku-4-5",
-            "max_tokens": 500,
+            "max_tokens": 800,
             "system": system,
             "messages": [{"role": "user", "content": user}],
         },
@@ -260,28 +326,21 @@ def send_line(text: str):
 # ── メイン ──────────────────────────────────────────────
 def main():
     # JSTで「明日」を計算（GitHub ActionsはUTC動作のため明示的にJSTを使う）
-    jst_now     = datetime.datetime.now(JST)
+    jst_now      = datetime.datetime.now(JST)
     tomorrow_jst = (jst_now + datetime.timedelta(days=1)).date()
 
-    raw = fetch_forecast()   # Open-Meteo（波高・風速・天気コード）
-    jma = fetch_jma_weekly() # JMA週間予報（天気コード・風テキスト・波テキスト）
+    daily, hourly = fetch_forecast()  # Open-Meteo（日付キー突合済み）
+    jma = fetch_jma_weekly()          # JMA週間予報（天気コード・風テキスト・波テキスト）
     days_data = []
     dows = ["月","火","水","木","金","土","日"]
 
-    # raw["time"] の中から JST翌日のインデックスを探す
-    start_idx = 1  # フォールバック
-    for idx, t in enumerate(raw["time"]):
-        if datetime.date.fromisoformat(t) == tomorrow_jst:
-            start_idx = idx
-            break
-    print(f"予報開始インデックス: {start_idx}（{raw['time'][start_idx]}〜）")
-
-    for i in range(start_idx, start_idx + 7):
-        if i >= len(raw["time"]):
-            break
-        date_str = raw["time"][i]
-        date_obj = datetime.date.fromisoformat(date_str)
-        swell_h_val = raw["swell_wave_height_max"][i] or 0
+    for offset in range(7):
+        date_obj = tomorrow_jst + datetime.timedelta(days=offset)
+        date_str = date_obj.isoformat()
+        day = daily.get(date_str)
+        if not day or day.get("wave_h_max") is None:
+            continue  # 片方のAPIしかデータがない日はスキップ
+        swell_h_val = day.get("swell_h_max") or 0
 
         # JMAデータ（その日付があれば優先）
         jma_day  = jma.get(date_str, {})
@@ -290,25 +349,50 @@ def main():
         jma_wave = jma_day.get("wave_text", "")
 
         # 天気絵文字: JMAコードを優先
-        wx_emoji = jma_weather_emoji(jma_code) if jma_code else weather_emoji(raw["weather_code"][i] or 0)
+        wx_emoji = jma_weather_emoji(jma_code) if jma_code else weather_emoji(day.get("weather_code") or 0)
 
         # 風向き: JMAテキストから方角を取得、なければOpen-Meteoの度数変換
+        wind_deg = day.get("wind_dir_dom") or 0
         jma_dir = jma_wind_dir(jma_wind)
-        wind_dir_str = jma_dir if jma_dir else wind_dir_name(raw["wind_direction_10m_dominant"][i] or 0)
+        wind_dir_str = jma_dir if jma_dir else wind_dir_name(wind_deg)
+
+        # 朝イチ5〜8時台の抽出値
+        am = None
+        slot = hourly.get(date_str, {})
+        if slot.get("wind_speeds") and slot.get("wave_hs"):
+            am_dir = vector_avg_dir(slot["wind_dirs"])
+            am_wave = sum(slot["wave_hs"]) / len(slot["wave_hs"])
+            am = {
+                "wind_speed": sum(slot["wind_speeds"]) / len(slot["wind_speeds"]),
+                "wind_dir":   wind_dir_name(am_dir),
+                "shore":      shore_relation(am_dir),
+                "wave_h":     am_wave,
+                "wave_size":  wave_size(am_wave),
+                "period":     sum(slot.get("periods", [0])) / max(len(slot.get("periods", [1])), 1),
+            }
 
         days_data.append({
             "date":       f"{date_obj.month}/{date_obj.day}",
             "dow":        dows[date_obj.weekday()],
-            "wave_size":  wave_size(raw["wave_height_max"][i] or 0),
+            "wave_size":  wave_size(day.get("wave_h_max") or 0),
             "swell_h":    swell_h_val,
             "swell_size": wave_size(swell_h_val),
+            "swell_dir":  wind_dir_name(day.get("swell_dir") or 0),
+            "period_max": day.get("period_max") or 0,
             "wind_dir":   wind_dir_str,
-            "wind_speed": raw["wind_speed_10m_max"][i] or 0,
+            "wind_speed": day.get("wind_speed_max") or 0,
+            "shore":      shore_relation(wind_deg),
             "weather":    wx_emoji,
             "tide":       tide_phase(date_obj),
             "jma_wind":   jma_wind,
             "jma_wave":   jma_wave,
+            "am":         am,
         })
+
+    if not days_data:
+        raise RuntimeError("予測データが1日分も取得できませんでした（Open-Meteo応答異常の可能性）")
+
+    print(f"予測対象: {days_data[0]['date']}〜{days_data[-1]['date']}（{len(days_data)}日分）")
 
     history = load_surf_history()
     print(f"実績データ読み込み: {len(history)}件")
@@ -319,5 +403,16 @@ def main():
     print(message)
     send_line(message)
 
+# ── 失敗時もLINEに一報を入れる（サイレント欠配の防止）──
+def notify_failure(err: Exception):
+    try:
+        send_line(f"⚠️ 今夜の波予測の生成に失敗しました\n({type(err).__name__}: {err})")
+    except Exception as e2:
+        print(f"失敗通知の送信にも失敗: {e2}")
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        notify_failure(e)
+        raise

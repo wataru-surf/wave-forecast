@@ -77,6 +77,14 @@ def main():
 
     # base64デコードしてJSONファイルとして保存
     session_json_bytes = base64.b64decode(session_b64)
+    if not session_json_bytes.lstrip().startswith(b"{"):
+        # instagrapi の dump_settings はJSON形式（先頭が "{"）。
+        # 先頭 0x80 等ならpickle形式（instaloader等の別ツール）が誤登録されている
+        print("❌ INSTAGRAM_SESSION がJSON形式ではありません"
+              f"（先頭バイト: {session_json_bytes[:2]!r}）。", flush=True)
+        print("   → instaloader等の別形式の可能性。setup_instagram_session.py で"
+              "再生成・再登録してください。", flush=True)
+        sys.exit(0)
     with tempfile.NamedTemporaryFile(mode='wb', suffix=".json", delete=False) as f:
         f.write(session_json_bytes)
         session_path = f.name
@@ -111,6 +119,7 @@ def main():
             sys.exit(0)
 
         new_entries: list[dict] = []
+        processed_dates: set[str] = set()  # 同日複数投稿は最新（先に返る）を採用
         skipped = 0
 
         for media in medias:
@@ -122,10 +131,15 @@ def main():
 
             days_ago = (datetime.date.today() - datetime.date.fromisoformat(post_date)).days
             if days_ago > KEEP_DAYS:
-                break
+                # break禁止: ピン留め投稿は日付順を崩して先頭に返るため、
+                # 古いピン留め1件で全件スキップされる事故を防ぐ
+                continue
 
             if "クソ下" not in caption:
                 skipped += 1
+                continue
+
+            if post_date in processed_dates:
                 continue
 
             if post_date in existing_dates and days_ago > 7:
@@ -142,6 +156,7 @@ def main():
             history = [h for h in history if h.get("date") != post_date]
             history.append(parsed)
             new_entries.append(parsed)
+            processed_dates.add(post_date)
             print(f"  ✅ {post_date}: {parsed.get('wave_size','?')} / "
                   f"{parsed.get('wind_dir','?')} {parsed.get('wind_speed_ms','?')}m/s "
                   f"/ ★{parsed.get('rating','?')}", flush=True)

@@ -1,9 +1,13 @@
 name: 東海村 週間波予測（19時配信）
 
 on:
-  # schedule は廃止。macOS launchd が毎晩 19:00 JST に workflow_dispatch で発火する
+  # 主トリガー: macOS launchd が毎晩 19:00 JST に workflow_dispatch で発火
   # （GitHub Actions の cron は遅延 5〜13h のブレがあり時刻制御不可のため）
   workflow_dispatch:   # launchd / 手動実行ボタン
+  # 予備トリガー: Macスリープ等で launchd が発火しなかった夜のバックアップ
+  # （遅延ありでも「届かない夜」を防ぐ。重複ガードで二重配信は防止）
+  schedule:
+    - cron: '30 10 * * *'   # 10:30 UTC ≈ 19:30 JST 以降に発火
 
 permissions:
   contents: write   # surf_history.json をコミット・プッシュするために必要
@@ -12,20 +16,43 @@ jobs:
   forecast:
     runs-on: ubuntu-latest
     steps:
+      # ── STEP 0: 重複ガード（launchd発火済みなら予備実行を止める）──
+      - name: 重複ガード
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          skip=false
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            today=$(date -u +%Y-%m-%d)
+            done_count=$(gh run list -R "${{ github.repository }}" \
+              --workflow "nightly-forecast.yml" --event workflow_dispatch \
+              --status success --created "$today" --json databaseId --jq 'length')
+            if [ "$done_count" -gt 0 ]; then
+              echo "本日分は配信済み（workflow_dispatch 成功 ${done_count} 回）→ 予備実行を停止"
+              skip=true
+            fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        if: steps.guard.outputs.skip != 'true'
         with:
           fetch-depth: 1
 
       - name: Python セットアップ
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: ライブラリインストール
+        if: steps.guard.outputs.skip != 'true'
         run: pip install -r requirements.txt
 
       # ── STEP 1: Instagramから実績データを収集 ──
       - name: Instagram実績データ収集
+        if: steps.guard.outputs.skip != 'true'
         env:
           ANTHROPIC_API_KEY:    ${{ secrets.ANTHROPIC_API_KEY }}
           INSTAGRAM_SESSION:    ${{ secrets.INSTAGRAM_SESSION }}
@@ -34,6 +61,7 @@ jobs:
 
       # ── STEP 2: surf_history.json をリポジトリにコミット ──
       - name: 実績データをコミット
+        if: steps.guard.outputs.skip != 'true'
         run: |
           git config user.name  "wave-forecast-bot"
           git config user.email "bot@wave-forecast.local"
@@ -44,6 +72,7 @@ jobs:
 
       # ── STEP 3: 週間予測を生成してLINEに送信 ──
       - name: 週間波予測を実行してLINEに送信
+        if: steps.guard.outputs.skip != 'true'
         env:
           ANTHROPIC_API_KEY:          ${{ secrets.ANTHROPIC_API_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN:  ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
