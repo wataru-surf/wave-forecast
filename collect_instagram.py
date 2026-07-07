@@ -96,8 +96,10 @@ def main():
         cl = Client()
         try:
             cl.load_settings(session_path)
-            cl.login(INSTAGRAM_USER, "")  # セッション再利用（パスワード不要）
-            print("✅ Instagramセッション読み込み完了", flush=True)
+            # login()は呼ばない（空パスワードは新instagrapiが拒否する）。
+            # セッションが有効かはAPI呼び出しで検証する
+            account = cl.account_info()
+            print(f"✅ Instagramセッション読み込み完了（@{account.username}）", flush=True)
         except Exception as e:
             print(f"❌ セッション読み込み失敗: {e}", flush=True)
             sys.exit(0)
