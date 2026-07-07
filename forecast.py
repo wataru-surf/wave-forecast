@@ -27,7 +27,7 @@ def load_surf_history() -> list[dict]:
 def build_history_context(history: list[dict], days: int = 14) -> str:
     if not history:
         return ""
-    cutoff = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+    cutoff = (datetime.datetime.now(JST).date() - datetime.timedelta(days=days)).isoformat()
     recent = [h for h in history if h.get("date", "") >= cutoff]
     if not recent:
         return ""
@@ -35,11 +35,13 @@ def build_history_context(history: list[dict], days: int = 14) -> str:
     for h in sorted(recent, key=lambda x: x["date"], reverse=True):
         d    = h.get("date", "?")
         size = h.get("wave_size", "?")
+        m    = h.get("wave_size_m_est")
+        size_m = f"{size}（約{m}m）" if m else size
         wdir = h.get("wind_dir", "?")
         wspd = h.get("wind_speed_ms", "?")
         rate = h.get("rating", "?")
         note = h.get("conditions_note", "")
-        lines.append(f"  {d}: {size} / {wdir}{wspd}m/s / ★{rate} {note}")
+        lines.append(f"  {d}: {size_m} / {wdir}{wspd}m/s / ★{rate} {note}")
     return "\n".join(lines)
 
 # ── 気象・波データ取得 (Open-Meteo / 無料・認証不要) ──

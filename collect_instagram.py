@@ -10,6 +10,28 @@ HISTORY_FILE   = os.path.join(os.path.dirname(__file__), "surf_history.json")
 ANTHROPIC_KEY  = os.environ.get("ANTHROPIC_API_KEY", "")
 MAX_NEW_POSTS  = 30
 KEEP_DAYS      = 365
+JST = datetime.timezone(datetime.timedelta(hours=9))
+
+def today_jst() -> datetime.date:
+    """Actions(UTC)上でも日付がズレないようJSTで「今日」を返す"""
+    return datetime.datetime.now(JST).date()
+
+# ── セッション失効などをLINEに通知（サイレント劣化の防止）──
+def notify_line(text: str):
+    token   = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+    user_id = os.environ.get("LINE_USER_ID", "")
+    if not token or not user_id:
+        return  # ローカル実行時など、未設定なら黙ってスキップ
+    try:
+        requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={"Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json"},
+            json={"to": user_id, "messages": [{"type": "text", "text": text}]},
+            timeout=15,
+        )
+    except Exception as e:
+        print(f"LINE通知失敗: {e}", flush=True)
 
 # ── キャプションからサーフデータをClaudeで抽出 ──
 def parse_caption(caption: str, post_date: str) -> dict | None:
@@ -102,6 +124,15 @@ def main():
             print(f"✅ Instagramセッション読み込み完了（@{account.username}）", flush=True)
         except Exception as e:
             print(f"❌ セッション読み込み失敗: {e}", flush=True)
+            notify_line(
+                "⚠️ Instagram実測データの収集が止まっています\n"
+                "（セッション失効の可能性）\n\n"
+                "波予測の配信は続きますが実測補正が効きません。\n"
+                "復旧: ターミナルで\n"
+                "cd \"/Users/wataru/Desktop/波情報（Code）ファイル/wave-forecast\"\n"
+                "python3 setup_instagram_session_v2.py\n"
+                "（Chromeのsessionidを貼り付け）"
+            )
             sys.exit(0)
 
         # ユーザーIDを取得
@@ -131,7 +162,7 @@ def main():
             if not post_date:
                 continue
 
-            days_ago = (datetime.date.today() - datetime.date.fromisoformat(post_date)).days
+            days_ago = (today_jst() - datetime.date.fromisoformat(post_date)).days
             if days_ago > KEEP_DAYS:
                 # break禁止: ピン留め投稿は日付順を崩して先頭に返るため、
                 # 古いピン留め1件で全件スキップされる事故を防ぐ
@@ -166,7 +197,7 @@ def main():
         print(f"\n新規取得: {len(new_entries)}件 / クソ下以外スキップ: {skipped}件", flush=True)
 
         if new_entries:
-            cutoff = (datetime.date.today() - datetime.timedelta(days=KEEP_DAYS)).isoformat()
+            cutoff = (today_jst() - datetime.timedelta(days=KEEP_DAYS)).isoformat()
             history = [h for h in history if h.get("date", "") >= cutoff]
             history.sort(key=lambda x: x.get("date", ""), reverse=True)
 
