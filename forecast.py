@@ -23,6 +23,29 @@ def load_surf_history() -> list[dict]:
             pass
     return []
 
+# ── 実測データの鮮度チェック（収集のサイレント停止を毎晩の配信で検知）──
+STALE_DAYS = 14  # 最終実測がこれより古ければ配信メッセージに警告を付ける
+
+def history_staleness_warning(history: list[dict]) -> str:
+    """収集側のLINE通知が失敗しても、毎晩届くこの配信が見張り役になる（二重防御）"""
+    if not history:
+        return ""
+    latest = max((h.get("date", "") for h in history), default="")
+    if not latest:
+        return ""
+    try:
+        latest_date = datetime.date.fromisoformat(latest)
+    except ValueError:
+        return ""
+    days_old = (datetime.datetime.now(JST).date() - latest_date).days
+    if days_old <= STALE_DAYS:
+        return ""
+    return (
+        f"\n\n⚠️ 実測データが{latest_date.month}/{latest_date.day}から"
+        f"{days_old}日間更新されていません。\n"
+        "Instagramセッション失効の可能性 → setup_instagram_session_v2.py で再登録を"
+    )
+
 # ── 実績データから直近N日のサマリーを生成 ──
 def build_history_context(history: list[dict], days: int = 14) -> str:
     if not history:
@@ -402,6 +425,7 @@ def main():
 
     now_str = datetime.datetime.now(JST).strftime("%Y/%m/%d %H:%M")
     message = f"🏄 東海村クソ下 週間波予測\n（{now_str} 更新）\n\n{forecast_text}"
+    message += history_staleness_warning(history)
     print(message)
     send_line(message)
 

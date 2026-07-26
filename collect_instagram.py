@@ -23,15 +23,32 @@ def notify_line(text: str):
     if not token or not user_id:
         return  # ローカル実行時など、未設定なら黙ってスキップ
     try:
-        requests.post(
+        r = requests.post(
             "https://api.line.me/v2/bot/message/push",
             headers={"Authorization": f"Bearer {token}",
                      "Content-Type": "application/json"},
             json={"to": user_id, "messages": [{"type": "text", "text": text}]},
             timeout=15,
         )
+        r.raise_for_status()  # 4xx/5xxをログに残す（通知の空振りを見えなくしない）
+        print("✅ LINE通知送信済み", flush=True)
     except Exception as e:
         print(f"LINE通知失敗: {e}", flush=True)
+
+# セッション復旧手順（通知メッセージ共通の末尾）
+REPAIR_HINT = (
+    "\n\n波予測の配信は続きますが実測補正が効きません。\n"
+    "復旧: ターミナルで\n"
+    "cd \"/Users/wataru/Desktop/波情報（Code）ファイル/wave-forecast\"\n"
+    "python3 setup_instagram_session_v2.py\n"
+    "（Chromeのsessionidを貼り付け）"
+)
+
+def fail(reason: str, detail: str = ""):
+    """致命的失敗: ログ出力＋LINE通知して終了（サイレント劣化させない）"""
+    print(f"❌ {reason}: {detail}", flush=True)
+    notify_line(f"⚠️ Instagram実測データの収集が止まっています\n（{reason}）" + REPAIR_HINT)
+    sys.exit(0)  # 収集失敗でも後続の予測配信は続けるため正常終了
 
 # ── キャプションからサーフデータをClaudeで抽出 ──
 def parse_caption(caption: str, post_date: str) -> dict | None:
@@ -98,15 +115,15 @@ def main():
         sys.exit(0)
 
     # base64デコードしてJSONファイルとして保存
-    session_json_bytes = base64.b64decode(session_b64)
+    try:
+        session_json_bytes = base64.b64decode(session_b64)
+    except Exception as e:
+        fail("セッションのbase64デコード失敗", str(e))
     if not session_json_bytes.lstrip().startswith(b"{"):
         # instagrapi の dump_settings はJSON形式（先頭が "{"）。
         # 先頭 0x80 等ならpickle形式（instaloader等の別ツール）が誤登録されている
-        print("❌ INSTAGRAM_SESSION がJSON形式ではありません"
-              f"（先頭バイト: {session_json_bytes[:2]!r}）。", flush=True)
-        print("   → instaloader等の別形式の可能性。setup_instagram_session.py で"
-              "再生成・再登録してください。", flush=True)
-        sys.exit(0)
+        fail("セッションがJSON形式ではない（別ツールの形式を誤登録？）",
+             f"先頭バイト: {session_json_bytes[:2]!r}")
     with tempfile.NamedTemporaryFile(mode='wb', suffix=".json", delete=False) as f:
         f.write(session_json_bytes)
         session_path = f.name
@@ -122,34 +139,30 @@ def main():
             # セッションが有効かはAPI呼び出しで検証する
             account = cl.account_info()
             print(f"✅ Instagramセッション読み込み完了（@{account.username}）", flush=True)
+        except LoginRequired as e:
+            fail("セッション失効（要再ログイン）", str(e))
         except Exception as e:
-            print(f"❌ セッション読み込み失敗: {e}", flush=True)
-            notify_line(
-                "⚠️ Instagram実測データの収集が止まっています\n"
-                "（セッション失効の可能性）\n\n"
-                "波予測の配信は続きますが実測補正が効きません。\n"
-                "復旧: ターミナルで\n"
-                "cd \"/Users/wataru/Desktop/波情報（Code）ファイル/wave-forecast\"\n"
-                "python3 setup_instagram_session_v2.py\n"
-                "（Chromeのsessionidを貼り付け）"
-            )
-            sys.exit(0)
+            fail("セッション読み込み失敗（失効の可能性）", str(e))
 
         # ユーザーIDを取得
+        # ※セッション読み込みが通ってもAPI呼び出しで蹴られる失効パターンがあるため
+        #   ここから先の失敗もすべてLINE通知する
         try:
             user_id = cl.user_id_from_username(INSTAGRAM_USER)
             print(f"✅ ユーザーID取得: {user_id}", flush=True)
+        except LoginRequired as e:
+            fail("セッション失効（要再ログイン）", str(e))
         except Exception as e:
-            print(f"❌ ユーザーID取得失敗: {e}", flush=True)
-            sys.exit(0)
+            fail("ユーザーID取得失敗", str(e))
 
         # 投稿を取得
         try:
             medias = cl.user_medias(user_id, MAX_NEW_POSTS)
             print(f"✅ 投稿取得: {len(medias)}件", flush=True)
+        except LoginRequired as e:
+            fail("セッション失効（要再ログイン）", str(e))
         except Exception as e:
-            print(f"❌ 投稿取得失敗: {e}", flush=True)
-            sys.exit(0)
+            fail("投稿取得失敗", str(e))
 
         new_entries: list[dict] = []
         processed_dates: set[str] = set()  # 同日複数投稿は最新（先に返る）を採用
@@ -211,4 +224,16 @@ def main():
         os.unlink(session_path)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:
+        # 想定外の例外もサイレントに死なせない（continue-on-errorがログを隠すため）
+        import traceback
+        traceback.print_exc()
+        notify_line(
+            "⚠️ Instagram実測データの収集が予期しないエラーで失敗しました\n"
+            f"（{type(e).__name__}: {e}）" + REPAIR_HINT
+        )
+        sys.exit(0)
