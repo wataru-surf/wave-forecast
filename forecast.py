@@ -217,6 +217,51 @@ def tide_phase(date: datetime.date) -> str:
     if h < 11:   return "若潮"
     return "中潮"
 
+# ── 気象庁 潮位表（日立 D1＝クソ下の最寄り）──
+# 固定長テキスト：毎時潮位 3桁×24 / 年月日(72-77) / 地点(78-79) / 満潮 4回×(時刻4+潮位3) / 干潮 同
+TIDE_STATION = "D1"
+
+def fetch_jma_tide(years: set[int]) -> dict:
+    """{date_str: {hourly:[cm×24], high:[(HH:MM,cm)], low:[(HH:MM,cm)]}}。失敗時は空（月齢の潮回りだけで続行）"""
+    result = {}
+    for y in sorted(years):
+        try:
+            r = requests.get(
+                f"https://www.data.jma.go.jp/kaiyou/data/db/tide/suisan/txt/{y}/{TIDE_STATION}.txt",
+                timeout=15,
+            )
+            r.raise_for_status()
+            for line in r.text.splitlines():
+                if len(line) < 136:
+                    continue
+                date = datetime.date(2000 + int(line[72:74]), int(line[74:76]), int(line[76:78]))
+                def events(start):
+                    out = []
+                    for i in range(start, start + 28, 7):
+                        t = line[i:i + 4]
+                        if t.strip() and t != "9999":
+                            t = t.replace(" ", "0")
+                            out.append((f"{int(t[:2])}:{t[2:]}", int(line[i + 4:i + 7])))
+                    return out
+                result[date.isoformat()] = {
+                    "hourly": [int(line[i * 3:i * 3 + 3]) for i in range(24)],
+                    "high":   events(80),
+                    "low":    events(108),
+                }
+        except Exception as e:
+            print(f"潮位表取得失敗（{y}年・スキップ）: {e}")
+    return result
+
+def tide_detail(day: dict) -> str:
+    """'満潮10:39(112cm)・18:30(125cm) ／ 干潮1:55(47cm)・13:13(110cm) ／ 朝5〜8時は上げ潮(71→103cm)'"""
+    if not day:
+        return ""
+    fmt = lambda ev: "・".join(f"{t}({cm}cm)" for t, cm in ev) or "なし"
+    h = day["hourly"]
+    a, b = h[5], h[8]
+    trend = "上げ潮" if b - a > 5 else ("下げ潮" if a - b > 5 else "潮止まり付近")
+    return f"満潮{fmt(day['high'])} ／ 干潮{fmt(day['low'])} ／ 朝5〜8時は{trend}({a}→{b}cm)"
+
 # ── 波高 → わたるさん単位変換 ──
 def wave_size(m: float) -> str:
     if m < 0.1:  return "フラット（波なし）"
@@ -271,6 +316,9 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
         "特に朝イチ（5〜8時台）のサーフィン適性に注目してください。"
         "クソ下の海岸は東向きで、西寄りの風がオフショアです（各日のデータに岸との関係を付記済み）。"
         "波の周期にも注目してください（周期8秒以上はうねり系で形が良く、6秒以下は風波でまとまりにくい）。"
+        "潮位にも注目してください。クソ下は満潮に近いほど波が厚くダラつき割れにくく、"
+        "潮が低めの時間帯のほうが評価が良い傾向があります（過去の実測272件・差は大きくないので断定はしない）。"
+        "満潮が朝の時間帯にかかる日は、潮が低い早い時間を勧めてください。"
         "過去の実測データが提供される場合は、それを参考にして予測の精度を高めてください。"
         "数値モデルと実測値の傾向の差異（例：モデルより実際は波が大きい/小さい等）に注目してください。"
     )
@@ -297,7 +345,10 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
             user += f"  JMA風: {d['jma_wind']}\n"
         if d.get("jma_wave"):
             user += f"  JMA波: {d['jma_wave']}\n"
-        user += f"  潮汐: {d['tide']}\n\n"
+        user += f"  潮汐: {d['tide']}"
+        if d.get("tide_detail"):
+            user += f"  {d['tide_detail']}（気象庁 日立）"
+        user += "\n\n"
     user += (
         "\n出力フォーマット（各日2行）:\n"
         "📅 [月/日]（[曜]）[天気絵文字] 🌊[波サイズ（パーツ表記）]\n"
@@ -308,6 +359,7 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
         "・風は向きと強さ（m/s）を必ず両方書く。オフショア/オンショア/サイドも一言に含める。\n"
         "・風・コンディションは朝イチ5〜8時のデータを優先して判断する。\n"
         "・コンディション一言は面の状態（面ツル/ザワつき/ジャンク）や入れるかどうかを具体的に。\n"
+        "・満潮が朝の時間帯にかかる日は、一言に「満潮前の早い時間」など潮の狙い目を短く添えてよい。\n"
         "最後に「今週のベスト」を一行でまとめる。\n"
         "全体400文字以内。ハッシュタグ不要。\n"
         "マークダウン記法（#, ##, **, __ など）は一切使わない。プレーンテキストのみ。"
@@ -356,6 +408,7 @@ def main():
 
     daily, hourly = fetch_forecast()  # Open-Meteo（日付キー突合済み）
     jma = fetch_jma_weekly()          # JMA週間予報（天気コード・風テキスト・波テキスト）
+    tides = fetch_jma_tide({(tomorrow_jst + datetime.timedelta(days=i)).year for i in range(7)})
     days_data = []
     dows = ["月","火","水","木","金","土","日"]
 
@@ -409,6 +462,7 @@ def main():
             "shore":      shore_relation(wind_deg),
             "weather":    wx_emoji,
             "tide":       tide_phase(date_obj),
+            "tide_detail": tide_detail(tides.get(date_str)),
             "jma_wind":   jma_wind,
             "jma_wave":   jma_wave,
             "am":         am,
