@@ -3,7 +3,7 @@
 東海村 週間波予測スクリプト
 毎晩19時(JST)にGitHub Actionsで実行 → LINEに送信
 """
-import os, json, math, datetime, requests
+import os, json, math, time, datetime, requests
 
 # ── 設定 ──────────────────────────────────────────────
 LAT, LON = 36.46, 140.57        # 東海村クソ下付近
@@ -11,6 +11,22 @@ JST = datetime.timezone(datetime.timedelta(hours=9))
 ANTHROPIC_KEY = os.environ["ANTHROPIC_API_KEY"]
 LINE_TOKEN    = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 LINE_USER_ID  = os.environ["LINE_USER_ID"]
+
+# ── 通信の一時エラーに備えたGET（Actionsランナーで瞬断が出るため。2026-10-18 Open-Meteo接続不可で欠配）──
+def http_get(url: str, timeout: int = 15, tries: int = 4) -> requests.Response:
+    waits = [5, 15, 30]
+    for i in range(tries):
+        try:
+            r = requests.get(url, timeout=timeout)
+            if r.status_code < 500:
+                return r
+            err = f"HTTP {r.status_code}"
+        except (requests.ConnectionError, requests.Timeout) as e:
+            err = str(e)[:120]
+        if i < tries - 1:
+            print(f"通信リトライ {i + 1}/{tries - 1}（{waits[i]}秒後）: {err}")
+            time.sleep(waits[i])
+    return requests.get(url, timeout=timeout)  # 最後の1回は例外をそのまま上げる
 
 # ── Instagram実績データ読み込み ─────────────────────────
 def load_surf_history() -> list[dict]:
@@ -82,7 +98,7 @@ def fetch_forecast() -> tuple[dict, dict]:
         "&timezone=Asia%2FTokyo"
         "&forecast_days=10"
     )
-    wr = requests.get(weather_url, timeout=15)
+    wr = http_get(weather_url)
     wr.raise_for_status()
     wj = wr.json()
 
@@ -95,7 +111,7 @@ def fetch_forecast() -> tuple[dict, dict]:
         "&timezone=Asia%2FTokyo"
         "&forecast_days=10"
     )
-    mr = requests.get(marine_url, timeout=15)
+    mr = http_get(marine_url)
     mr.raise_for_status()
     mj = mr.json()
 
@@ -142,7 +158,7 @@ def fetch_forecast() -> tuple[dict, dict]:
 def fetch_jma_weekly() -> dict:
     """気象庁週間予報 → {date_str: {weatherCode, wind_text, wave_text}}"""
     try:
-        r = requests.get(
+        r = http_get(
             "https://www.jma.go.jp/bosai/forecast/data/forecast/080000.json",
             timeout=15
         )
@@ -226,7 +242,7 @@ def fetch_jma_tide(years: set[int]) -> dict:
     result = {}
     for y in sorted(years):
         try:
-            r = requests.get(
+            r = http_get(
                 f"https://www.data.jma.go.jp/kaiyou/data/db/tide/suisan/txt/{y}/{TIDE_STATION}.txt",
                 timeout=15,
             )
