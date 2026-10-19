@@ -3,7 +3,7 @@
 東海村 週間波予測スクリプト
 毎晩19時(JST)にGitHub Actionsで実行 → LINEに送信
 """
-import os, json, math, time, datetime, requests
+import os, re, json, math, time, datetime, requests
 
 # ── 設定 ──────────────────────────────────────────────
 LAT, LON = 36.46, 140.57        # 東海村クソ下付近
@@ -381,6 +381,8 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
         "・コンディション一言は面の状態（面ツル/ザワつき/ジャンク）や入れるかどうかを具体的に。\n"
         "・一言の最後に「◯〜◯時ごろ」とおすすめ時刻を添える（データの「朝で潮が低い時間」をそのまま書く）。\n"
         "・潮位のcm数値、上げ潮／下げ潮の説明、「潮が厚い」という言い方は書かない。一言は40文字以内。\n"
+        "・一言に「朝イチ」「早い時間」など時間帯の言葉は書かない（おすすめ時刻と食い違うため。時刻は末尾の「◯〜◯時ごろ」だけ）。\n"
+        "・点数は必ず5点刻み（25・30など）。\n"
         "・評価は朝イチの予想をBCM基準の記号＋点数（5点刻み）で書く："
         "◎90〜100（エクセレント）／○70〜85（十分楽しめる）／△40〜65（まずまず遊べる）／"
         "▽10〜35（なんとかできるが良くはない）／×0〜5（フラット・クローズ）。\n"
@@ -412,6 +414,20 @@ def generate_forecast_text(days_data: list[dict], history: list[dict]) -> str:
     )
     r.raise_for_status()
     return r.json()["content"][0]["text"].strip()
+
+# ── 評価点の後処理（5点刻み・記号と点数の対応をコードで保証。AIが▽28等を出すため）──
+def score_mark(n: int) -> str:
+    if n <= 5:  return "×"
+    if n <= 35: return "▽"
+    if n <= 65: return "△"
+    if n <= 85: return "○"
+    return "◎"
+
+def normalize_scores(text: str) -> str:
+    def fix(m):
+        n = min(100, max(0, int(round(int(m.group(2)) / 5) * 5)))
+        return f"{score_mark(n)}{n}点"
+    return re.sub(r"([×▽△○◎◯])\s*(\d{1,3})\s*点", fix, text)
 
 # ── LINE へ送信 ──
 def send_line(text: str):
@@ -505,7 +521,7 @@ def main():
 
     history = load_surf_history()
     print(f"実績データ読み込み: {len(history)}件")
-    forecast_text = generate_forecast_text(days_data, history)
+    forecast_text = normalize_scores(generate_forecast_text(days_data, history))
 
     now_str = datetime.datetime.now(JST).strftime("%Y/%m/%d %H:%M")
     message = f"🏄 東海村クソ下 週間波予測\n（{now_str} 更新）\n\n{forecast_text}"
